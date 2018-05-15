@@ -1,71 +1,43 @@
-import gevent, gevent.pool, gevent.event
-import logging
-from gevent.greenlet import Greenlet
-from greenlet import GreenletExit
-from gevent.queue import JoinableQueue
-from greenlet import greenlet
-from gevent.hub import get_hub
-import random
-import traceback
+import gevent, gevent.pool, gevent.event, gevent.greenlet, gevent.queue
+import random, pickle
 
-class Task(gevent.event.AsyncResult):
-	def __init__(self, msg, sender=None):
-		super().__init__()
-		self.msg = msg
-		self._sender = sender
+__shared_nothing__ = True
 
-class ActorShutdown(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
 
-class ActorCrash(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-class ActorRestarted(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-class ActorTimeout(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-class ActorNotRestartable(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-class RouterNoChildren(Exception):
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-
-class ExitResult(gevent.event.AsyncResult):
+class ActorCrashedError(Exception):
 	pass
 
-class Actor(Greenlet):
-	def __new__(cls, *args, **kwargs):
-		obj = Greenlet.__new__(cls, *args, **kwargs)
-		obj._restart_args = args
-		obj._restart_kwargs = kwargs
-		return obj
+class Actor(gevent.greenlet.Greenlet):
+	class Task(gevent.event.AsyncResult):
+		def __init__(self, msg, sender=None):
+			super().__init__()
+			self._msg = (pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
+						 if __shared_nothing__ else msg)
+			self.sender = sender
 
-	def __init__(self, max_children=None, logger=None):
+		@property
+		def msg(self):
+			return pickle.loads(self._msg) if __shared_nothing__ else self._msg
+
+		def set(self, result):
+			return super().set(pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
+							   if __shared_nothing__ else result)
+
+		def get(self):
+			return pickle.loads(super().get()) if __shared_nothing__ else super().get()
+
+	def __init__(self):
 		super().__init__()
-		self._logger = logger or logging.getLogger("root")
-		self._restart = gevent.event.Event()
-		self._mailbox = JoinableQueue()
-		self._children = (gevent.pool.Pool(size=max_children)
-		                  if max_children
-		                  else gevent.pool.Group())
+		self._mailbox = gevent.queue.JoinableQueue()
+		self._children = gevent.pool.Group()
 		self._shutdown = gevent.event.Event()
-		self._shutdown_exc = ActorShutdown("{act} is being shutdown...".format(act=self))
-		self._logger.debug("{act} created.".format(act=self))
+		self._crashed = gevent.event.Event()
+		self._loop = gevent.spawn(self._handle)
+		self._loop.link_exception(self._handle_crash)
+		self._poisoned_pill = object()
 		self.start()
 
-	def update_state(self, old, new):
-		self._restart_args = tuple([new if item == old else item for item in self._restart_args])
-		self._restart_kwargs = {k:new if v == old else v for k,v in self._restart_kwargs.items()}
-
-	def _run(self):
+	def _handle(self):
 		for task in self._mailbox:
 			if isinstance(task, Task):
 				try:
@@ -73,173 +45,152 @@ class Actor(Greenlet):
 				except Exception as e:
 					task.set_exception(e)
 					raise
-			elif isinstance(task, ExitResult):
-				self._logger.debug("All pending tasks handled, {act} exiting...".format(act=self))
-				self.kill()
-			else:
-				self._logger.warn("{act} received an invalid message: {msg}".format(act=self, msg=task))
+			elif task is self._poisoned_pill:
+				self._loop.kill()
 			self._mailbox.task_done()
 
+	def _run(self):
+		self._shutdown.wait()
+
+	def _handle_crash(self, loop):
+		self._crashed.set()
+
+	@property
+	def crashed(self):
+		return self._crashed.is_set()
+
 	def handle(self, message):
+		"""Override in your own Actor subclass"""
 		raise NotImplementedError
 
-	def receive(self, msg, sender):
-		if not isinstance(sender, Actor):
+	def _receive(self, msg):
+		sending_greenlet = gevent.getcurrent()
+		if isinstance(sending_greenlet, Actor):
+			sender = sending_greenlet
+		elif (isinstance(sending_greenlet, gevent.greenlet.Greenlet)
+		      and isinstance(sending_greenlet.parent, Actor)):
+			sender = sending_greenlet.parent
+		else:
 			sender = None
-		if self._shutdown.is_set() or self.dead:
-			self._logger.debug("{act} does not accept any more requests")
-			raise self._shutdown_exc
 		task = Task(msg, sender)
-		self._mailbox.put(task)
+		if not self.crashed:
+			self._mailbox.put(task)
+		else:
+			task.set_exception(ActorCrashedError())
 		return task
 
 	def tell(self, msg):
-		sender = gevent.getcurrent()
-		self._logger.debug("{sen} TOLD {rec}: {msg}".format(rec=self, sen=sender, msg=msg))
-		self.receive(msg, sender)
+		"""Send a message, get nothing (fire-and-forget)."""
+		self.receive(msg)
 
 	def ask(self, msg):
-		sender = gevent.getcurrent()
-		self._logger.debug("{sen} ASKED {rec}: {msg}".format(rec=self, sen=sender, msg=msg))
-		return self.receive(msg, sender)
+		"""Send a message, get a future."""
+		return self.receive(msg)
 
 	def await(self, msg):
-		sender = gevent.getcurrent()
-		self._logger.debug("{sen} is AWAITING {rec}: {msg}".format(rec=self, sen=sender, msg=msg))
-		return self.receive(msg, sender).get()
+		"""Send a message, get a result"""
+		return self.receive(msg).get()
+
+	def continue(self):
+		"""If Actor crashed, continue where it left off,"""
+		if not self._loop.dead:
+			return
+		self._crashed.clear()
+		self._loop = gevent.spawn(self._loop)
 
 	def restart(self):
-		self._logger.debug("{act} will be restarted using the following arguments: *args={args}, **kwargs={kwargs}".format(act=self, args=self._restart_args, kwargs=self._restart_kwargs))
-		self._replacement = self.__class__(*self._restart_args, **self._restart_kwargs)
-		self._replacement.start()
-		self._restart.set()
-		return self._replacement
+		"""Clear the mailbox, then continue processing."""
+		[child.restart() for child in self._children]
+		if not self._loop.dead:
+			self._loop.kill()
+		self._mailbox = gevent.queue.JoinableQueue()
+		self._crashed.clear()
+		self._loop = gevent.spawn(self._loop)
 
-	def get_current_address(self, block=True, timeout=None):
-		if block:
-			if self._restart.wait(timeout):
-				return self._replacement
-			else:
-				raise ActorTimeout("Actor.get_current_address() timed out")
-
-	def shutdown(self, block=True):
-		gevent.idle()
-		self._logger.debug("{act} is shutting down.".format(act=self))
+	def shutdown(self):
+		"""Shutdown Actor, unrecoverable"""
 		self._shutdown.set()
 		for child in self._children:
 			child.shutdown()
-		self._mailbox.put(ExitResult())
-		if block:
-			self._mailbox.join()
+		self._mailbox.put(self._poisoned_pill)
 
 	def register_child(self, child):
+		"""Register an already running Actor as child"""
 		self._children.add(child)
 
 	def spawn_child(self, cls, *args, **kwargs):
+		"""Start an instance of cls(*args, **kwargs) as child"""
 		self._children.start(cls(*args, **kwargs))
 
-	def unregister_child(self, actor):
+	def unregister_child(self, child):
+		"""Unregister a running Actor from the list of children"""
 		self._children.discard(actor)
 
+
 class Monitor(Actor):
-	def __init__(self, policy='restart', max_children=None, logger=None, children=None):
-		super().__init__(max_children=max_children, logger=logger)
+	def __init__(self, policy='restart', children=None):
+		super().__init__()
 		self._policy = policy
-		if children:
-			for child in children:
-				self.register_child(child)
-
-	def handle(self, task):
-		pass
-
-	def restart(self):
-		if 'children' in self._restart_kwargs:
-			self._logger.debug("restarting monitored children ...")
-			self._restart_kwargs['children'] = [child.restart() for child in self._restart_kwargs['children']]
-		self._logger.debug("restarting monitor ...")
-		return super().restart()
+		[self.register_child(child) for child in children] if children else None
 
 	def _run(self):
 		self.join()
 
-	def handle_child_exit(self, child):
+	def _handle_child_exit(self, child):
 		if self._policy == 'restart':
-			self._logger.debug("RESTART" + str(child))
-			try:
-				replacement = child.restart()
-				replacement.link_exception(self.handle_child_exit)
-				## UPDATE STATE
-				self._children.add(replacement)
-				self._logger.debug("{rt}: {new} replaces {old}".format(rt=self, new=replacement, old=child))
-			except ActorNotRestartable as e:
-				self._logger.error(e)
-				self._logger.error("{act} failed to restart a child, escalating...".format(act=self))
-				self.kill(ActorCrash("{act} crashed".format(act=self)))
-
+			child.restart()
+		elif self._policy == 'continue':
+			child.continue()
 		elif self._policy == 'escalate':
-			self._logger.error("{child}, a child of {act} died, escalating...".format(act=self, child=child))
-			self.kill(ActorCrash("{act} crashed".format(act=self)))
-
+			self._loop.kill(ActorCrashedError())
 		elif self._policy == 'ignore':
-			self._logger.error("{child}, a child of {act} died, ignoring...".format(act=self, child=child))
-
-		elif self._policy == 'escalate_on_empty':
-			if len(self._children.greenlets) > 1:
-				self._logger.error("{child}, a child of {act} died, ignoring...".format(act=self, child=child))
-			else:
-				self._logger.error("{child}, the last child of {act} died, escalating...".format(act=self, child=child))
-				self.kill(ActorCrash("{act} crashed".format(act=self)))
+			pass
+		elif self._policy == 'deplete':
+			if len(self._children.greenlets) <= 1:
+				self._loop.kill(ActorCrashedError())
 
 	def spawn_child(self, cls, *args, **kwargs):
 		child = cls(*args, **kwargs)
-		child.link_exception(self.handle_child_exit)
+		child.link_exception(self._handle_child_exit)
 		self._children.start(child)
 
 	def register_child(self, child):
-		child.link_exception(self.handle_child_exit)
-		self._children.add(child)
+		child.link_exception(self._handle_child_exit)
+		super().register_child(child)
+
+	def unregister_child(self, child):
+		child.unlink(self._handle_child_exit)
+		self._children.discard(child)
 
 class Router(Monitor):
-	def receive(self, msg, sender):
-		if self._shutdown.is_set() or self.dead:
-			self._logger.debug("{act} does not accept any more requests".format(act=self))
-			if self._restart.is_set():
-				raise ActorRestarted("{act} was replaced by {rep}".format(act=self, rep=self.get_current_address()))
-			else:
-				raise ActorCrash("{act} crashed".format(act=self))
-		try:
-			target = random.choice(tuple(self._children.greenlets))
-			self._logger.debug("{rt} routed message '{msg}' to {target}".format(rt=self, msg=msg, target=target))
+	def _route(self, msg):
+		"""Override in your own Router subclass"""
+		raise NotImplementedError
+
+	def receive(self, msg):
+		if self._children.greenlets:
+			target = self._route(msg)
 			return target.receive(msg, sender)
-		except IndexError:
-			raise RouterNoChildren("{rt} failed to route message '{msg}' from {sender}.".format(rt=self, msg=msg, sender=sender))
 
-class Generator(Actor):
-	def __init__(self, gen, target, method='tell', processor=None, throttle=None):
-		super().__init__()
-		self._gen = gen
-		self._target = target
-		self._method = method
-		self._processor = processor
-		self._throttle=throttle
+class RandomRouter(Router):
+	"""Routes received messages to a random child"""
+	def _route(self, msg):
+		return random.choice(tuple(self._children.greenlets))
 
-	def _run(self):
-		for item in self._gen:
-			while True:
-				try:
-					method = getattr(self._target, self._method, None)
-					if method and callable(method):
-						r = method(item)
-						if self._processor and callable(self._processor):
-							self._processor(r)
-						if self._throttle:
-							gevent.sleep(self._throttle)
-				except ActorRestarted as e:
-					new_target = self._target.get_current_address()
-					self.update_state(self._target, new_target)
-					self._target = new_target
-					continue
-				except ActorCrash as e:
-					self._logger.error("TARGET CRASHED, STOPPING")
-					self.kill(ActorCrash("{act} crashed".format(act=self)))
-				break
+class RoundRobinRouter(Router):
+	"""Routes received messages to its childdren in a round-robin fashion"""
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self._next = self._round_robin()
+
+	def _round_robin(self):
+		while len(self._children.greenlets) >= 1:
+			for item in self._children.greenlets:
+				yield item
+		raise StopIteration
+
+	def _route(self, msg):
+		try:
+			return next(self._next)
+		except StopIteration:
+			self._loop.kill(ActorCrashedError())
