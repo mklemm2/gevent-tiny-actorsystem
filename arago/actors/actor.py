@@ -81,15 +81,15 @@ class Actor(gevent.greenlet.Greenlet):
 
 	def tell(self, msg):
 		"""Send a message, get nothing (fire-and-forget)."""
-		self.receive(msg)
+		self._receive(msg)
 
 	def ask(self, msg):
 		"""Send a message, get a future."""
-		return self.receive(msg)
+		return self._receive(msg)
 
 	def await(self, msg):
 		"""Send a message, get a result"""
-		return self.receive(msg).get()
+		return self._receive(msg).get()
 
 	def continue(self):
 		"""If Actor crashed, continue where it left off,"""
@@ -167,10 +167,9 @@ class Router(Monitor):
 		"""Override in your own Router subclass"""
 		raise NotImplementedError
 
-	def receive(self, msg):
-		if self._children.greenlets:
-			target = self._route(msg)
-			return target.receive(msg, sender)
+	def _receive(self, msg):
+		target = self._route(msg)
+		return target._receive(msg, sender)
 
 class RandomRouter(Router):
 	"""Routes received messages to a random child"""
