@@ -1,40 +1,50 @@
 import gevent, gevent.pool, gevent.event, gevent.greenlet, gevent.queue
 import random, pickle
 
-__shared_nothing__ = True
-
-
 class ActorCrashedError(Exception):
 	pass
 
-class Actor(gevent.greenlet.Greenlet):
-	class Task(gevent.event.AsyncResult):
-		def __init__(self, msg, sender=None):
-			super().__init__()
-			self._msg = (pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
-						 if __shared_nothing__ else msg)
-			self.sender = sender
-
-		@property
-		def msg(self):
-			return pickle.loads(self._msg) if __shared_nothing__ else self._msg
-
-		def set(self, result):
-			return super().set(pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
-							   if __shared_nothing__ else result)
-
-		def get(self):
-			return pickle.loads(super().get()) if __shared_nothing__ else super().get()
-
-	def __init__(self):
+class Task(gevent.event.AsyncResult):
+	def __init__(self, msg, sender=None):
 		super().__init__()
+		self._msg = pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
+		self.sender = sender
+
+	@property
+	def msg(self):
+		return pickle.loads(self._msg)
+
+	def set(self, value=None):
+		bytes = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+		return super().set(bytes)
+
+	def get(self, *args, **kwargs):
+		bytes = super().get(*args, **kwargs)
+		try:
+			dat = pickle.loads(bytes)
+		except:
+			dat = bytes
+		return dat
+
+class Loop(gevent.greenlet.Greenlet):
+	def __init__(self, actor, loop, exc_handler):
+		self._run=loop
+		super().__init__()
+		self.link_exception(exc_handler)
+		self._actor=actor
+		self.start()
+
+class Actor(gevent.greenlet.Greenlet):
+	def __init__(self, name=None):
+		super().__init__()
+		if name:
+			self.name=name
 		self._mailbox = gevent.queue.JoinableQueue()
 		self._children = gevent.pool.Group()
 		self._shutdown = gevent.event.Event()
 		self._crashed = gevent.event.Event()
-		self._loop = gevent.spawn(self._handle)
-		self._loop.link_exception(self._handle_crash)
 		self._poisoned_pill = object()
+		self._loop = Loop(self, self._handle, self._handle_crash)
 		self.start()
 
 	def _handle(self):
@@ -65,11 +75,10 @@ class Actor(gevent.greenlet.Greenlet):
 
 	def _receive(self, msg):
 		sending_greenlet = gevent.getcurrent()
-		if isinstance(sending_greenlet, Actor):
+		if isinstance(getattr(sending_greenlet, '_actor', None), Actor):
+			sender = sending_greenlet._actor
+		elif isinstance(sending_greenlet, Actor):
 			sender = sending_greenlet
-		elif (isinstance(sending_greenlet, gevent.greenlet.Greenlet)
-		      and isinstance(sending_greenlet.parent, Actor)):
-			sender = sending_greenlet.parent
 		else:
 			sender = None
 		task = Task(msg, sender)
@@ -91,27 +100,25 @@ class Actor(gevent.greenlet.Greenlet):
 		"""Send a message, get a result"""
 		return self._receive(msg).get()
 
-	def continue(self):
+	def resume(self):
 		"""If Actor crashed, continue where it left off,"""
 		if not self._loop.dead:
 			return
 		self._crashed.clear()
-		self._loop = gevent.spawn(self._loop)
+		self._loop = Loop(self, self._handle, self._handle_crash)
 
 	def restart(self):
 		"""Clear the mailbox, then continue processing."""
 		[child.restart() for child in self._children]
 		if not self._loop.dead:
 			self._loop.kill()
-		self._mailbox = gevent.queue.JoinableQueue()
-		self._crashed.clear()
-		self._loop = gevent.spawn(self._loop)
+		self._mailbox.queue.clear()
+		self.resume()
 
 	def shutdown(self):
 		"""Shutdown Actor, unrecoverable"""
 		self._shutdown.set()
-		for child in self._children:
-			child.shutdown()
+		[child.shutdown() for child in self._children]
 		self._mailbox.put(self._poisoned_pill)
 
 	def register_child(self, child):
@@ -125,71 +132,3 @@ class Actor(gevent.greenlet.Greenlet):
 	def unregister_child(self, child):
 		"""Unregister a running Actor from the list of children"""
 		self._children.discard(actor)
-
-
-class Monitor(Actor):
-	def __init__(self, policy='restart', children=None):
-		super().__init__()
-		self._policy = policy
-		[self.register_child(child) for child in children] if children else None
-
-	def _run(self):
-		self.join()
-
-	def _handle_child_exit(self, child):
-		if self._policy == 'restart':
-			child.restart()
-		elif self._policy == 'continue':
-			child.continue()
-		elif self._policy == 'escalate':
-			self._loop.kill(ActorCrashedError())
-		elif self._policy == 'ignore':
-			pass
-		elif self._policy == 'deplete':
-			if len(self._children.greenlets) <= 1:
-				self._loop.kill(ActorCrashedError())
-
-	def spawn_child(self, cls, *args, **kwargs):
-		child = cls(*args, **kwargs)
-		child.link_exception(self._handle_child_exit)
-		self._children.start(child)
-
-	def register_child(self, child):
-		child.link_exception(self._handle_child_exit)
-		super().register_child(child)
-
-	def unregister_child(self, child):
-		child.unlink(self._handle_child_exit)
-		self._children.discard(child)
-
-class Router(Monitor):
-	def _route(self, msg):
-		"""Override in your own Router subclass"""
-		raise NotImplementedError
-
-	def _receive(self, msg):
-		target = self._route(msg)
-		return target._receive(msg, sender)
-
-class RandomRouter(Router):
-	"""Routes received messages to a random child"""
-	def _route(self, msg):
-		return random.choice(tuple(self._children.greenlets))
-
-class RoundRobinRouter(Router):
-	"""Routes received messages to its childdren in a round-robin fashion"""
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-		self._next = self._round_robin()
-
-	def _round_robin(self):
-		while len(self._children.greenlets) >= 1:
-			for item in self._children.greenlets:
-				yield item
-		raise StopIteration
-
-	def _route(self, msg):
-		try:
-			return next(self._next)
-		except StopIteration:
-			self._loop.kill(ActorCrashedError())
