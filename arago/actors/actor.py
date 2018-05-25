@@ -1,11 +1,12 @@
-import gevent, gevent.pool, gevent.event, gevent.greenlet, gevent.queue
+import gevent, gevent.event, gevent.greenlet, gevent.queue
 import random, pickle, logging
+from gevent import GreenletExit
 
 class ActorCrashedError(Exception):
 	__str__ = lambda x: "ActorCrashedError"
 
-class ActorHaltedError(Exception):
-	__str__ = lambda x: "ActorHaltedError"
+class ActorStoppedError(Exception):
+	__str__ = lambda x: "ActorStoppedError"
 
 class ActorShutdownError(Exception):
     __str__ = lambda x: "ActorShutdownError"
@@ -45,23 +46,51 @@ class Loop(gevent.greenlet.Greenlet):
 		self.start()
 
 class Actor(gevent.greenlet.Greenlet):
-	def __init__(self, name=None):
+	def __init__(self, name=None, max_idle=None, ttl=None):
 		super().__init__()
-		if name:
-			self.name=name
+		self.name=name if name else "actor-{0}".format(self.minimal_ident)
 		self._logger = logging.getLogger('root')
 		self._mailbox = gevent.queue.JoinableQueue()
-		self._children = gevent.pool.Group()
 		self._shutdown = gevent.event.Event()
-		self._crashed = gevent.event.Event()
+		self._stopped = gevent.event.Event()
 		self._poisoned_pill = object()
-		self._loop = Loop(self, self._handle, self._handle_crash)
+		self._loop = Loop(self, self._handle, self._handle_main_loop_crash)
 		self._loop_callback = None
 		self._loop_links = []
+		self._max_idle = max_idle
+		if max_idle:
+			self._logger.debug("{me} has a timeout of {max_idle}".format(me=self, max_idle=max_idle))
+			self._idle = gevent.spawn(self._countdown, max_idle)
+			gevent.idle()
+		if ttl:
+			self._logger.debug("{me} has a TTL of {ttl}".format(me=self, ttl=ttl))
+			self._timeout = gevent.spawn(self._countdown, ttl)
+			gevent.idle()
 		self.start()
+
+	def _countdown(self, seconds):
+		while True:
+			try:
+				self._logger.trace("{me} starts counting down from {seconds}".format(me=self, seconds=seconds))
+				gevent.sleep(seconds)
+				self._logger.trace("{me} has reached timeout of {seconds}, terminating ...".format(me=self, seconds=seconds))
+				self.shutdown()
+				break
+			except GreenletExit:
+				if not self._shutdown.is_set():
+					self._logger.trace("{me} canceled current timeout.".format(me=self))
+					continue
+				else:
+					self._logger.trace("{me} wanted to cancel current timeout but was too late.".format(me=self))
+					break
+
+	def __str__(self):
+		return "<{type} \"{name}\">".format(type=type(self).__name__, name=self.name)
 
 	def _handle(self):
 		for task in self._mailbox:
+			if hasattr(self, '_idle'):
+				self._idle.kill(block=False)
 			if isinstance(task, Task):
 				self._logger.trace("{me} starts handling {task}".format(me=self, task=task))
 				try:
@@ -76,23 +105,12 @@ class Actor(gevent.greenlet.Greenlet):
 
 	def _run(self):
 		self._shutdown.wait()
+		self._mailbox.join()
 		self._logger.debug("{me} has terminated.".format(me=self))
 
-	def _handle_crash(self, loop):
+	def _handle_main_loop_crash(self, loop):
 		self._logger.error(("Main loop of {me} ended with: {exc}.").format(me=self, exc=loop.exception))
-		self._crashed.set()
-
-	def rawlink(self, callback):
-		self._logger.debug("Linking {cb} to {me}".format(cb=callback, me=self))
-		def callback_proxy(child):
-			if isinstance(child, Loop):
-				self._logger.debug("Main Loop of {me} triggered callback {cb}, " "proxying ...".format(me=self, cb=callback))
-			elif isinstance(child, Actor):
-				self._logger.debug("{me} triggered callback {cb}, " "passing through ...".format(me=self, cb=callback))
-			callback(self)
-		#super().rawlink(callback_proxy)
-		self._loop.rawlink(callback_proxy)
-		self._loop_links.append(callback_proxy)
+		self._stopped.set()
 
 	def handle(self, task):
 		"""Override in your own Actor subclass"""
@@ -109,7 +127,7 @@ class Actor(gevent.greenlet.Greenlet):
 		else:
 			sender = None
 		task = Task(msg, sender)
-		if not self._crashed.is_set():
+		if not self._stopped.is_set():
 			self._mailbox.put(task)
 			self._logger.trace("{me} received {task}".format(me=self, task=task))
 		else:
@@ -129,24 +147,23 @@ class Actor(gevent.greenlet.Greenlet):
 		"""Send a message, get a result"""
 		return self._receive(msg).get()
 
-	def halt(self, exc=ActorHaltedError):
+	def stop(self, exc=ActorStoppedError):
 		"""Crash actor so it can be resumed"""
-		[child.halt() for child in list(self._children)]
 		if not self._loop.dead:
 			self._loop.kill(exception=exc)
-		self._logger.debug("{me} is halting with: {exc}.".format(me=self, exc=exc))
+		self._logger.debug("{me} is stopping with: {exc}.".format(me=self, exc=exc))
 
 	def resume(self):
 		"""If Actor crashed, continue where it left off,"""
 		if self._shutdown.is_set():
 			self._logger.error("{me} failed to resume, already terminated.".format(me=self))
 			raise ActorShutdownError
-		[child.resume() for child in self._children]
 		if not self._loop.dead:
+			self._logger.debug("{me} is not dead, no need to resume.".format(me=self))
 			return
-		self._loop = Loop(self, self._handle, self._handle_crash)
-		[self._loop.rawlink(cb) for cb in self._loop_links]
-		self._crashed.clear()
+		self._loop = Loop(self, self._handle, self._handle_main_loop_crash)
+		[self._loop.link(cb) for cb in self._loop_links]
+		self._stopped.clear()
 		self._logger.debug("{me} has resumed operation.".format(me=self))
 
 	def restart(self):
@@ -154,7 +171,6 @@ class Actor(gevent.greenlet.Greenlet):
 		if self._shutdown.is_set():
 			self._logger.error("{me} failed to restart, already terminated.".format(me=self))
 			raise ActorShutdownError
-		[child.restart() for child in self._children]
 		if not self._loop.dead:
 			self._loop.kill()
 		self._mailbox.queue.clear()
@@ -164,22 +180,5 @@ class Actor(gevent.greenlet.Greenlet):
 	def shutdown(self):
 		"""Shutdown Actor, unrecoverable"""
 		self._shutdown.set()
-		[child.shutdown() for child in list(self._children)]
 		self._mailbox.put(self._poisoned_pill)
 		self._logger.debug("{me} received order to terminate.".format(me=self))
-
-	def register_child(self, child):
-		"""Register an already running Actor as child"""
-		self._children.add(child)
-		self._logger.debug("{ch} registered as child of {me}.".format(ch=child, me=self))
-
-	def spawn_child(self, cls, *args, **kwargs):
-		"""Start an instance of cls(*args, **kwargs) as child"""
-		child = cls(*args, **kwargs)
-		self.logger.debug("{me} spawned new child {ch}".format(me=self, ch=child))
-		self._children.start(child)
-
-	def unregister_child(self, child):
-		"""Unregister a running Actor from the list of children"""
-		self._children.discard(actor)
-		self._logger.debug("{ch} unregistered as child of {me}.".format(ch=child, me=self))
