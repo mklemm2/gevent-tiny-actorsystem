@@ -1,1 +1,1 @@
-from arago.actors.routers.random.random_router.py import RandomRouter
+from arago.actors.routers.random.random_router import RandomRouter

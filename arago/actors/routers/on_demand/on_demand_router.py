@@ -1,10 +1,12 @@
 from arago.actors import Router, IGNORE
+import gevent.lock
+import gc
 
 class OnDemandRouter(Router):
 	"""Spawns new children on demand"""
-	def __init__(self, worker_cls, name=None, worker_name_tpl=None, policy=IGNORE,
-	             mapfunc=None, children=None,
-	             *worker_args, **worker_kwargs):
+	def __init__(self, worker_cls, name=None, worker_name_tpl=None,
+	             policy=IGNORE, max_restarts=None, timeframe=None,
+	             mapfunc=None, *worker_args, **worker_kwargs):
 		self._worker_cls = worker_cls
 		self._worker_args = worker_args
 		self._worker_kwargs = worker_kwargs
@@ -12,7 +14,8 @@ class OnDemandRouter(Router):
 		self._map = mapfunc if callable(mapfunc) else lambda msg: msg
 		self._children_map = {}
 		self._children_map_reverse = {}
-		super().__init__(name=name, policy=policy, children=None)
+		self._children_map_lock = gevent.lock.Semaphore()
+		super().__init__(name=name, policy=policy, max_restarts=max_restarts, timeframe=timeframe, children=None)
 
 	def _route(self, msg):
 		target = self._map(msg)
@@ -31,22 +34,21 @@ class OnDemandRouter(Router):
 
 	def spawn_child(self, cls, target, *args, **kwargs):
 		child = cls(*args, **kwargs)
+		child._target = target
 		self.register_child(child, target)
 		return child
 
 	def register_child(self, child, target):
 		super().register_child(child)
-		self._children_map[target] = child
-		self._children_map_reverse[child] = target
+		with self._children_map_lock:
+			self._children_map[target] = child
 
-	def unregister_child(self, child, target=None):
-		if target and target in self._children_map:
-			child = self._children_map[target]
-		elif child in self._children_map_reverse:
-			target = self._children_map_reverse[child]
-		else:
-			self._logger.warn("Cannot unregister child {ch} from {me}: Not registered!".format(ch=child, me=self))
-			return
-		del self._children_map[target]
-		del self._children_map_reverse[child]
-		super().unregister_child(child)
+	def unregister_child(self, child):
+		with self._children_map_lock:
+			target = child._target
+			try:
+				super().unregister_child(child)
+				del self._children_map[target]
+				gc.collect()
+			except KeyError:
+				self._logger.debug("{me} failed to unregister {ch}: Not registered (any more?)".format(me=self, ch=child))

@@ -1,17 +1,25 @@
+import gevent
 from arago.actors.monitor import Monitor
-from arago.actors.actor import Task, ActorCrashedError
+from arago.actors.actor import Task, ActorStoppedError, ActorShutdownError
 
 class Router(Monitor):
 	def _route(self, msg):
 		"""Override in your own Router subclass"""
 		raise NotImplementedError
 
-	def _receive(self, msg):
-		if not self._stopped.is_set():
-			target = self._route(msg)
-			task = target._receive(msg)
-		else:
-			task = Task(msg)
-			task.set_exception(ActorCrashedError)
-			self._logger.warn("{me} has crashed and rejects {task}".format(me=self, task=task))
-		return task
+	def _forward(self, task):
+		target = self._route(task.msg)
+		self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
+		try:
+			return target._enqueue(task)
+		except ActorShutdownError as e:
+			gevent.idle()
+			self._logger.trace("{me} has failed to route {task} to {target} (cause: ActorShutdown)".format(me=self, task=task, target=target))
+			task.set_exception(e)
+		except ActorStoppedError as e:
+			gevent.idle()
+			self._logger.trace("{me} has failed to route {task} to {target} (cause: ActorStopped)".format(me=self, task=task, target=target))
+			task.set_exception(e)
+
+	def _handle(self, task):
+		return self._forward(task)
