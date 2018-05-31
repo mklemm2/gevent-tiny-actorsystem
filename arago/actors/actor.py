@@ -42,7 +42,7 @@ class Actor(object):
 		self.name=name if name else "actor-{0}".format(self.minimal_ident)
 		self._logger = logging.getLogger('root')
 		self._mailbox = gevent.queue.Queue()
-		self._stopped = gevent.event.Event()
+		self._stopped = False
 		self._poisoned_pill = object()
 		self._max_idle = max_idle
 		self._ttl = ttl
@@ -63,7 +63,7 @@ class Actor(object):
 	def _dequeue(self, parent):
 		ttl_timeout = gevent.Timeout.start_new(timeout=self._ttl, exception=ActorTTLError)
 		max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
-		self._stopped.clear()
+		self._stopped = False
 		try:
 			for task in self._mailbox:
 				max_idle_timeout.cancel()
@@ -83,10 +83,10 @@ class Actor(object):
 			self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
 			self._kill()
 		except ActorStoppedError as e:
-			self._stopped.set()
+			self._stopped = True
 			self._parent._handle_child(self, "stopped")
 		except Exception as e:
-			self._stopped.set()
+			self._stopped = True
 			self._logger.error(("{me} crashed with: {exc}").format(me=self, exc=e))
 			self._parent._handle_child(self, "crashed")
 		finally:
@@ -111,7 +111,7 @@ class Actor(object):
 		return self._enqueue(task)
 
 	def _enqueue(self, task):
-		if self._stopped.is_set():
+		if self._stopped:
 			self._logger.warn("{me} is stopped and rejects {task}".format(me=self, task=task))
 			raise ActorStoppedError
 		else:
@@ -120,7 +120,7 @@ class Actor(object):
 		return task
 
 	def _kill(self):
-		self._stopped.set()
+		self._stopped = True
 		self._logger.debug("{me} received order to stop immediately.".format(me=self))
 		self._parent._handle_child(self, "stopped")
 		try:
@@ -148,16 +148,16 @@ class Actor(object):
 		raise last_exc
 
 	def start(self):
-		if self._stopped.is_set():
+		if self._stopped:
 			self._loop = gevent.spawn(self._dequeue, weakref.proxy(self))
-			self._stopped.clear()
+			self._stopped = False
 			self._logger.debug("{me} has resumed operation.".format(me=self))
 		else:
 			self._logger.debug("{me} is already started.".format(me=self))
 
 	def stop(self):
-		if not self._stopped.is_set():
-			self._stopped.set()
+		if not self._stopped:
+			self._stopped = True
 			self._logger.debug("{me} received order to stop.".format(me=self))
 			self._mailbox.put(self._poisoned_pill)
 		else:
