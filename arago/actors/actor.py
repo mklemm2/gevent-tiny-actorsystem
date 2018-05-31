@@ -157,15 +157,11 @@ class Actor(object):
 	def resume(self):
 		"""If Actor crashed, continue where it left off,"""
 		if self._stopped.is_set():
-			self._logger.error("{me} failed to resume, already terminated.".format(me=self))
-			raise ActorStoppedError
+			self._loop = gevent.spawn(self._dequeue, weakref.proxy(self))
+			self._stopped.clear()
+			self._logger.debug("{me} has resumed operation.".format(me=self))
 		else:
 			self._logger.debug("{me} is not dead, no need to resume.".format(me=self))
-			return
-		self._loop = gevent.spawn(self._dequeue, self)
-		[self._loop.link(cb) for cb in self._loop_links]
-		self._stopped.clear()
-		self._logger.debug("{me} has resumed operation.".format(me=self))
 
 	def restart(self):
 		"""Clear the mailbox, then continue processing."""

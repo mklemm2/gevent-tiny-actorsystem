@@ -1,12 +1,12 @@
 from gevent import monkey; monkey.patch_all()
 import requests, json, gevent, random, gevent.pool
 
-targets = ["node-{0}".format(item) for item in range(100000)]
+targets = ["node-{0}".format(item) for item in range(3)]
 greetings = ["hello", "hallo", "gruezdi", "aloa", "moin", "ahoi", "servus", "crash", "die"]
 
 session = requests.Session()
 
-def rest_call(i):
+def rest_call(i):#
 	greeting = random.choice(greetings)
 	target = random.choice(targets)
 	r = session.post("http://localhost:8080", json={"target": target, "payload": greeting})
@@ -14,6 +14,6 @@ def rest_call(i):
 
 p = gevent.pool.Pool(size=10)
 
-g = [p.spawn(rest_call, i) for i in range(500000)]
+g = [p.spawn(rest_call, i) for i in range(10)]
 
 gevent.joinall(g)
