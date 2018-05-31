@@ -11,21 +11,32 @@ class ActorMaxIdleError(Exception):
 class ActorTTLError(Exception):
     __str__ = lambda x: "ActorTTLError"
 
+class TaskCanceledError(Exception):
+    __str__ = lambda x: "TaskCanceledError"
+
 class Task(gevent.event.AsyncResult):
 	def __init__(self, msg, sender=None):
 		super().__init__()
 		self._msg = pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
 		self.sender = sender
+		self.canceled = False
+
+	def cancel(self):
+		self.canceled = True
 
 	@property
 	def msg(self):
 		return pickle.loads(self._msg)
 
 	def set(self, value=None):
+		if self.canceled:
+			return
 		bytes = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
 		return super().set(bytes)
 
 	def get(self, *args, **kwargs):
+		if self.canceled:
+			return TaskCanceledError
 		bytes = super().get(*args, **kwargs)
 		try:
 			dat = pickle.loads(bytes)
@@ -70,12 +81,15 @@ class Actor(object):
 				max_idle_timeout.start()
 				if self._max_idle:
 					self._logger.trace("{me} has canceled timeout of {max_idle} seconds".format(me=self, max_idle=self._max_idle))
-				if isinstance(task, Task):
+				if isinstance(task, Task) and not task.canceled:
 					self._logger.trace("{me} took {task} from mailbox".format(me=self, task=task))
 					self._handle(task)
 				elif task is self._poisoned_pill:
 					self._logger.debug("{me} received poisoned pill.".format(me=self))
 					raise ActorStoppedError
+				elif isinstance(task, Task) and task.canceled:
+					self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
+					continue
 		except ActorMaxIdleError as e:
 			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
 			self._kill()
