@@ -2,17 +2,8 @@ import gevent, gevent.event, gevent.greenlet, gevent.queue, greenlet
 import random, pickle, logging, weakref
 from gevent import GreenletExit
 
-class ActorCrashedError(Exception):
-	__str__ = lambda x: "ActorCrashedError"
-
 class ActorStoppedError(Exception):
 	__str__ = lambda x: "ActorStoppedError"
-
-class ActorShutdownError(Exception):
-    __str__ = lambda x: "ActorShutdownError"
-
-class ActorRestartError(Exception):
-    __str__ = lambda x: "ActorRestartError"
 
 class ActorMaxIdleError(Exception):
     __str__ = lambda x: "ActorMaxIdleError"
@@ -84,22 +75,23 @@ class Actor(object):
 					self._handle(task)
 				elif task is self._poisoned_pill:
 					self._logger.debug("{me} received poisoned pill.".format(me=self))
-					self._loop.kill()
-		except ActorMaxIdleError:
+					raise ActorStoppedError
+		except ActorMaxIdleError as e:
 			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
-			self.shutdown()
-		except ActorTTLError:
+			self._kill()
+		except ActorTTLError as e:
 			self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
-			self.shutdown()
-		except Exception as e:
-			self._logger.error(("Main loop of {me} ended with: {exc}.").format(me=self, exc=e))
-			#raise
-		finally:
+			self._kill()
+		except ActorStoppedError as e:
 			self._stopped.set()
+			self._parent._handle_child(self, "stopped")
+		except Exception as e:
+			self._stopped.set()
+			self._logger.error(("{me} crashed with: {exc}").format(me=self, exc=e))
+			self._parent._handle_child(self, "crashed")
+		finally:
 			ttl_timeout.close()
 			max_idle_timeout.close()
-			gevent.idle()
-			self._parent._handle_child_exit(self)
 
 	def handle(self, task):
 		"""Override in your own Actor subclass"""
@@ -127,6 +119,16 @@ class Actor(object):
 			self._logger.trace("{me} received {task}".format(me=self, task=task))
 		return task
 
+	def _kill(self):
+		self._stopped.set()
+		self._logger.debug("{me} received order to stop immediately.".format(me=self))
+		self._parent._handle_child(self, "stopped")
+		try:
+			self._loop.kill()
+		except GreenletExit:
+			pass
+		self.clear()
+
 	def tell(self, msg, sender=None):
 		"""Send a message, get nothing (fire-and-forget)."""
 		self._receive(msg, sender=sender)
@@ -140,58 +142,40 @@ class Actor(object):
 		for it in range(retry):
 			try:
 				return self._receive(msg, sender=sender).get(timeout=timeout)
-			except (ActorShutdownError, ActorStoppedError, gevent.Timeout) as exc:
+			except (ActorStoppedError, gevent.Timeout) as exc:
+				last_exc = exc
 				continue
-		else:
-			raise exc
+		raise last_exc
 
-	def stop(self, exc=ActorStoppedError):
-		"""Crash actor so it can be resumed"""
-		if not self._stopped.is_set():
-			self._stopped.set()
-			self._loop.kill(exception=exc)
-		self._logger.debug("{me} is stopping with: {exc}.".format(me=self, exc=exc))
-
-	def resume(self):
-		"""If Actor crashed, continue where it left off,"""
+	def start(self):
 		if self._stopped.is_set():
 			self._loop = gevent.spawn(self._dequeue, weakref.proxy(self))
 			self._stopped.clear()
 			self._logger.debug("{me} has resumed operation.".format(me=self))
 		else:
-			self._logger.debug("{me} is not dead, no need to resume.".format(me=self))
+			self._logger.debug("{me} is already started.".format(me=self))
 
-	def restart(self):
-		"""Clear the mailbox, then continue processing."""
-		self.stop()
-		self.clear_mailbox(exc=ActorRestartError)
-		self.resume()
-		self._logger.debug("{me} was successfully restarted.".format(me=self))
-
-	def clear_mailbox(self, exc=ActorShutdownError):
-		if len(self._mailbox) > 0:
-			self._logger.debug("{me} still has {size} task(s) in its mailbox.".format(me=self, size=len(self._mailbox)))
-			while len(self._mailbox) > 0:
-				task = self._mailbox.get()
-				if isinstance(task, Task):
-					self._logger.trace("{me} is rejecting {task}: {exc}".format(me=self, task=task, exc=exc))
-					task.set_exception(exc)
-
-	def shutdown(self):
-		"""Shutdown Actor, unrecoverable"""
-		self._stopped.set()
-		self.clear_mailbox()
-		self._mailbox.put(self._poisoned_pill)
-		self._logger.debug("{me} received order to terminate.".format(me=self))
-
-	def __del__(self):
+	def stop(self):
 		if not self._stopped.is_set():
 			self._stopped.set()
-		self.clear_mailbox()
+			self._logger.debug("{me} received order to stop.".format(me=self))
+			self._mailbox.put(self._poisoned_pill)
+		else:
+			self._logger.debug("{me} is already stopped.".format(me=self))
+
+	def clear(self):
+		while len(self._mailbox) > 0:
+			task = self._mailbox.get()
+			if isinstance(task, Task):
+				self._logger.trace("{me} is rejecting {task}".format(me=self, task=task))
+				task.set_exception(ActorStoppedError)
+
+	def __del__(self):
 		try:
 			self._loop.kill()
-		except greenlet.GreenletExit:
+		except GreenletExit:
 			pass
+		self.clear()
 		self._logger.debug("{me} was destroyed properly".format(me=self))
 
 	def register_parent(self, parent):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from gevent import monkey; monkey.patch_all()
 import gevent, gevent.pywsgi, gevent.hub
-from arago.actors import Actor, Monitor, RESUME, RESTART, IGNORE, SHUTDOWN, ActorShutdownError, ActorStoppedError
+from arago.actors import Actor, Monitor, RESUME, RESTART, IGNORE, SHUTDOWN, ActorStoppedError
 from arago.actors.routers.on_demand import OnDemandRouter
 import falcon, json, sys, traceback, logging
 from gevent.backdoor import BackdoorServer
@@ -32,7 +32,7 @@ class Echo(Actor):
 			return result
 
 		elif json.loads(task.msg)['payload'] == "die":
-			self.shutdown()
+			self.stop()
 			return "You bastards!"
 
 		else:

@@ -1,6 +1,6 @@
 import gevent
 from arago.actors.monitor import Monitor
-from arago.actors.actor import Task, ActorStoppedError, ActorShutdownError
+from arago.actors.actor import Task, ActorStoppedError
 
 class Router(Monitor):
 	def _route(self, msg):
@@ -12,13 +12,9 @@ class Router(Monitor):
 		self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
 		try:
 			return target._enqueue(task)
-		except ActorShutdownError as e:
-			gevent.idle()
-			self._logger.trace("{me} has failed to route {task} to {target} (cause: ActorShutdown)".format(me=self, task=task, target=target))
-			task.set_exception(e)
 		except ActorStoppedError as e:
 			gevent.idle()
-			self._logger.trace("{me} has failed to route {task} to {target} (cause: ActorStopped)".format(me=self, task=task, target=target))
+			self._logger.trace("{me} has failed to route {task} to {target}".format(me=self, task=task, target=target))
 			task.set_exception(e)
 
 	def _handle(self, task):
