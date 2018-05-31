@@ -50,7 +50,7 @@ class Actor(object):
 	def __init__(self, name=None, max_idle=None, ttl=None):
 		self.name=name if name else "actor-{0}".format(self.minimal_ident)
 		self._logger = logging.getLogger('root')
-		self._mailbox = gevent.queue.JoinableQueue()
+		self._mailbox = gevent.queue.Queue()
 		self._stopped = gevent.event.Event()
 		self._poisoned_pill = object()
 		self._max_idle = max_idle
@@ -82,10 +82,8 @@ class Actor(object):
 				if isinstance(task, Task):
 					self._logger.trace("{me} took {task} from mailbox".format(me=self, task=task))
 					self._handle(task)
-					self._mailbox.task_done()
 				elif task is self._poisoned_pill:
 					self._logger.debug("{me} received poisoned pill.".format(me=self))
-					self._mailbox.task_done()
 					self._loop.kill()
 		except ActorMaxIdleError:
 			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
@@ -178,7 +176,6 @@ class Actor(object):
 				if isinstance(task, Task):
 					self._logger.trace("{me} is rejecting {task}: {exc}".format(me=self, task=task, exc=exc))
 					task.set_exception(exc)
-				self._mailbox.task_done()
 
 	def shutdown(self):
 		"""Shutdown Actor, unrecoverable"""
