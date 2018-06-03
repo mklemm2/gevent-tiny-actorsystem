@@ -33,7 +33,7 @@ class Task(gevent.event.AsyncResult):
 
 	def set(self, value=None):
 		if self.canceled:
-			return
+			return TaskCanceledError
 		bytes = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
 		return super().set(bytes)
 
