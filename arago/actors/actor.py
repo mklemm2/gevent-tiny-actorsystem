@@ -1,5 +1,6 @@
 import gevent, gevent.event, gevent.greenlet, gevent.queue, greenlet
 import random, pickle, logging, weakref
+from types import SimpleNamespace
 from function_pattern_matching import MultiFunc
 
 from gevent import GreenletExit
@@ -53,6 +54,7 @@ class Task(gevent.event.AsyncResult):
 class Actor(object):
 	def __init__(self, name=None, max_idle=None, ttl=None):
 		self.name=name if name else "actor-{0}".format(self.minimal_ident)
+		self.context = SimpleNamespace()
 		self._logger = logging.getLogger('root')
 		self._mailbox = gevent.queue.Queue()
 		self._stopped = False
@@ -183,6 +185,7 @@ class Actor(object):
 			self._logger.debug("{me} is already stopped.".format(me=self))
 
 	def clear(self):
+		self.context = SimpleNamespace()
 		while len(self._mailbox) > 0:
 			task = self._mailbox.get()
 			if isinstance(task, Task):
