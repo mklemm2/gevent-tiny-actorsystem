@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 from gevent import monkey; monkey.patch_all()
 import gevent, gevent.pywsgi, gevent.hub
-from arago.actors import Actor, Monitor, RESUME, RESTART, IGNORE, SHUTDOWN, ActorStoppedError
+from arago.actors import Task, Actor, Monitor, RESUME, RESTART, IGNORE, SHUTDOWN, ActorStoppedError
 from arago.actors.routers.on_demand import OnDemandRouter
 import falcon, json, sys, traceback, logging
 from gevent.backdoor import BackdoorServer
 from arago.common.logging import getCustomLogger
+import function_pattern_matching as fpm
+
+
 
 logger = getCustomLogger(
 	level="TRACE", logfile=sys.stderr,
@@ -22,21 +25,54 @@ def print_exception(context, type, value, tb):
 
 gevent.hub.get_hub().print_exception = print_exception
 
+def has_payload(*values):
+	def wrapper(task):
+		try:
+			payload = json.loads(task.msg)['payload']
+			return payload in values if values else True
+		except (KeyError, json.decoder.JSONDecodeError):
+			return False
+	return fpm.GuardFunc(wrapper)
+
+def is_task():
+	return fpm.GuardFunc(lambda task: isinstance(task, Task))
+
+def default_match(*args, **kwargs):
+	return fpm.case(*args, **kwargs)
+
+def match(*args, **kwargs):
+	return fpm.case(fpm.guard(*args, **kwargs))
+
+
 class Echo(Actor):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
+	@match
+	def handle(self, task: is_task() & has_payload("crash")):
+		"""Provoke a crash by referring a non-existent name"""
+		return result
+
+	@match
+	def handle(self, task: is_task() & has_payload("die")):
+		"""Stop yourself"""
+		self.stop()
+		return "You bastards!"
+
+	@match
+	def handle(self, task: is_task() & has_payload("kill")):
+		"""Clear your own mailbox and context"""
+		self.clear()
+		return "I can't remember what I wanted to do next."
+
+	@match
+	def handle(self, task: is_task() & has_payload()):
+		"""Send the payload back to the sender"""
+		return "{name} says {greeting}".format(name=self.name, greeting=json.loads(task.msg)['payload'])
+
+	@default_match
 	def handle(self, task):
-
-		if json.loads(task.msg)['payload'] == "crash":
-			return result
-
-		elif json.loads(task.msg)['payload'] == "die":
-			self.stop()
-			return "You bastards!"
-
-		else:
-			return "{name} says {greeting}".format(name=self.name, greeting=json.loads(task.msg)['payload'])
+		return "Wrong arguments!"
 
 class Producer(object):
 	def __init__(self, handler):
