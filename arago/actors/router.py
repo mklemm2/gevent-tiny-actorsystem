@@ -8,14 +8,15 @@ class Router(Monitor):
 		raise NotImplementedError
 
 	def _forward(self, task):
-		target = self._route(task.msg)
-		self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
 		try:
+			target = self._route(task.msg)
+			self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
 			return target._enqueue(task)
-		except ActorStoppedError as e:
+		except Exception as e:
 			gevent.idle()
-			self._logger.trace("{me} has failed to route {task} to {target}".format(me=self, task=task, target=target))
+			self._logger.trace("{me} has failed to route {task}".format(me=self, task=task))
 			task.set_exception(e)
+			raise
 
 	def _handle(self, task):
 		return self._forward(task)
