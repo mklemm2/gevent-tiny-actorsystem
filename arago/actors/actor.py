@@ -1,5 +1,7 @@
 import gevent, gevent.event, gevent.greenlet, gevent.queue, greenlet
 import random, pickle, logging, weakref
+from function_pattern_matching import MultiFunc
+
 from gevent import GreenletExit
 
 class ActorStoppedError(Exception):
@@ -65,7 +67,10 @@ class Actor(object):
 	def _handle(self, task):
 		try:
 			self._logger.trace("{me} starts handling {task}".format(me=self, task=task))
-			task.set(self.handle(task))
+			if isinstance(self.handle, MultiFunc):
+				task.set(self.handle(self, task))
+			else:
+				task.set(self.handle(task))
 			return task
 		except Exception as e:
 			task.set_exception(e)
