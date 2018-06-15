@@ -8,8 +8,6 @@ from gevent.backdoor import BackdoorServer
 from arago.common.logging import getCustomLogger
 import function_pattern_matching as fpm
 
-
-
 logger = getCustomLogger(
 	level="TRACE", logfile=sys.stderr,
 	#formatting=("%(asctime)s %(levelname)-7s %(message)s in %(pathname)s:%(lineno)s", "%Y-%m-%d %H:%M:%S")
@@ -72,7 +70,7 @@ class Echo(Actor):
 
 	@default_match
 	def handle(self, task):
-		return "Wrong arguments!"
+		raise falcon.HTTPBadRequest()
 
 class Producer(object):
 	def __init__(self, handler):
@@ -86,7 +84,7 @@ router = OnDemandRouter(
 	policy=SHUTDOWN, max_idle=10
 )
 
-monitor = Monitor(name="monitor-1", children=[router], policy=RESTART)
+monitor = Monitor(name="monitor-1", children=[router], policy=RESUME)
 
 producer = Producer(router)
 

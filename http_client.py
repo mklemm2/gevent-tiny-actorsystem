@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 from gevent import monkey; monkey.patch_all()
 import requests, json, gevent, random, gevent.pool
 
 targets = ["node-{0}".format(item) for item in range(10)]
-greetings = ["hello", "hallo", "gruezdi", "aloa", "moin", "ahoi", "servus", "crash", "die", "kill"]
+greetings = ["hello", "hallo", "gruezdi", "aloa", "moin", "ahoi", "servus", "crash", "die"]
 
 session = requests.Session()
 
