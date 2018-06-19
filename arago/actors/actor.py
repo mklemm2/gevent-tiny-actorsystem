@@ -70,9 +70,9 @@ class Actor(object):
 		try:
 			self._logger.trace("{me} starts handling {task}".format(me=self, task=task))
 			if isinstance(self.handle, MultiFunc):
-				task.set(self.handle(self, task))
+				task.set(self.handle(self, task.msg, task.sender))
 			else:
-				task.set(self.handle(task))
+				task.set(self.handle(task.msg, task.sender))
 			return task
 		except Exception as e:
 			task.set_exception(e)
