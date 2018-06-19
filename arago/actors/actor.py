@@ -52,8 +52,7 @@ class Task(gevent.event.AsyncResult):
 		).format(sender=self.sender, msg=self.msg)
 
 class Actor(object):
-	def __init__(self, name=None, max_idle=None, ttl=None):
-		self.name=name if name else "actor-{0}".format(self.minimal_ident)
+	def __init__(self, name=None, max_idle=None, ttl=None, loop=None):
 		self.context = SimpleNamespace()
 		self._logger = logging.getLogger('root')
 		self._mailbox = gevent.queue.Queue()
