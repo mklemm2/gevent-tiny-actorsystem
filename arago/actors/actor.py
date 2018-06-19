@@ -61,7 +61,8 @@ class Actor(object):
 		self._poisoned_pill = object()
 		self._max_idle = max_idle
 		self._ttl = ttl
-		self._loop = gevent.spawn(self._dequeue, weakref.proxy(self))
+		self._loop = gevent.spawn(loop) if loop else gevent.spawn(self._dequeue, weakref.proxy(self))
+		self.name=name if name else "actor-{0}".format(self._loop.minimal_ident)
 
 	def __str__(self):
 		return "<{type} \"{name}\">".format(type=type(self).__name__, name=self.name)
