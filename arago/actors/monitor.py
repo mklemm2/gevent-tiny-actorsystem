@@ -93,3 +93,12 @@ class Monitor(Actor):
 	def shutdown(self):
 		[child.shutdown() for child in self._children]
 		super().shutdown()
+
+class Root(Monitor):
+	def __init__(self, join=True, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		if join:
+			self.join()
+
+	def join(self):
+		self._loop.join()
