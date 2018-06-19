@@ -42,10 +42,9 @@ class Task(gevent.event.AsyncResult):
 			return TaskCanceledError
 		bytes = super().get(*args, **kwargs)
 		try:
-			dat = pickle.loads(bytes)
+			return pickle.loads(bytes)
 		except:
-			dat = bytes
-		return dat
+			return bytes
 
 	def __str__(self):
 		return ("<Task, sender={sender}, message={msg}>"
