@@ -23,17 +23,13 @@ def print_exception(context, type, value, tb):
 
 gevent.hub.get_hub().print_exception = print_exception
 
-def has_payload(*values):
-	def wrapper(task):
+def payload(*values):
+	def wrapper(msg):
 		try:
-			payload = json.loads(task.msg)['payload']
-			return payload in values if values else True
+			return json.loads(msg)['payload'] in values if values else True
 		except (KeyError, json.decoder.JSONDecodeError):
 			return False
 	return fpm.GuardFunc(wrapper)
-
-def is_task():
-	return fpm.GuardFunc(lambda task: isinstance(task, Task))
 
 def default_match(*args, **kwargs):
 	return fpm.case(*args, **kwargs)
@@ -47,29 +43,30 @@ class Echo(Actor):
 		super().__init__(*args, **kwargs)
 
 	@match
-	def handle(self, task: is_task() & has_payload("crash")):
+	def handle(self, msg: payload("crash"), sender):
 		"""Provoke a crash by referring a non-existent name"""
 		return result
 
 	@match
-	def handle(self, task: is_task() & has_payload("die")):
+	def handle(self, msg: payload("die"), sender):
 		"""Stop yourself"""
 		self.stop()
 		return "You bastards!"
 
 	@match
-	def handle(self, task: is_task() & has_payload("kill")):
+	def handle(self, msg: payload("kill"), sender):
 		"""Clear your own mailbox and context"""
 		self.clear()
 		return "I can't remember what I wanted to do next."
 
 	@match
-	def handle(self, task: is_task() & has_payload()):
+	def handle(self, msg: payload(), sender):
 		"""Send the payload back to the sender"""
-		return "{name} says {greeting}".format(name=self.name, greeting=json.loads(task.msg)['payload'])
+		return "{name} says {greeting}".format(name=self.name, greeting=json.loads(msg)['payload'])
 
 	@default_match
-	def handle(self, task):
+	def handle(self, msg, sender):
+		"""Message is missing the payload"""
 		raise falcon.HTTPBadRequest()
 
 class Producer(object):
