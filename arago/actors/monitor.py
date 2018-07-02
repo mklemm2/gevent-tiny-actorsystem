@@ -1,3 +1,5 @@
+import gevent.hub
+import signal
 from arago.actors.actor import Actor
 from arago.actors.actor import ActorStoppedError
 
@@ -97,8 +99,11 @@ class Monitor(Actor):
 class Root(Monitor):
 	def __init__(self, join=True, *args, **kwargs):
 		super().__init__(*args, **kwargs)
+		gevent.hub.signal(signal.SIGINT, self.shutdown)
+		gevent.hub.signal(signal.SIGTERM, self.shutdown)
 		if join:
 			self.join()
+
 
 	def join(self):
 		self._loop.join()
