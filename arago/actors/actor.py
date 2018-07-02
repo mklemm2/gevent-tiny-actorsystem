@@ -158,7 +158,7 @@ class Actor(object):
 		"""Send a message, get a future."""
 		return self._receive(msg, sender=sender)
 
-	def await(self, msg, sender=None, timeout=None, retry=1):
+	def wait_for(self, msg, sender=None, timeout=None, retry=1):
 		"""Send a message, get a result"""
 		for it in range(retry):
 			try:
