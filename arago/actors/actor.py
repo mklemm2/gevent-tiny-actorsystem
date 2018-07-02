@@ -104,7 +104,8 @@ class Actor(object):
 			self._kill()
 		except ActorStoppedError as e:
 			self._stopped = True
-			self._parent._handle_child(self, "stopped")
+			if hasattr(self, "_parent"):
+				self._parent._handle_child(self, "stopped")
 		except Exception as e:
 			self._stopped = True
 			self._logger.error(("{me} crashed with: {exc}").format(me=self, exc=e))
