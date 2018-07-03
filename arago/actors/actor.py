@@ -2,6 +2,7 @@ import gevent, gevent.event, gevent.greenlet, gevent.queue, greenlet
 import random, pickle, logging, weakref
 from types import SimpleNamespace
 from function_pattern_matching import MultiFunc
+import inspect
 
 from gevent import GreenletExit
 
@@ -127,7 +128,11 @@ class Actor(object):
 		elif isinstance(sending_greenlet, Actor):
 			sender = sending_greenlet
 		else:
-			sender = None
+			l = inspect.stack()[1][0].f_locals
+			if "self" in l:
+				sender = l["self"]
+			else:
+				sender = None
 		task = Task(msg, sender)
 		return self._enqueue(task)
 
