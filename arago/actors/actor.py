@@ -84,6 +84,7 @@ class Actor(object):
 		self._stopped = False
 		try:
 			for task in self._mailbox:
+				gevent.idle()
 				max_idle_timeout.cancel()
 				max_idle_timeout.start()
 				if self._max_idle:
