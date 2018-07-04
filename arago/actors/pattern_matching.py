@@ -19,3 +19,32 @@ def match(**kwargs):
 def default(decoratee):
 	return fpm.case(decoratee)
 
+def attr(attr, value=None, operation=None):
+	def wrapper(arg):
+		try:
+			if operation and not value:
+				return operation(getattr(arg, attr))
+			elif value and not operation:
+				return getattr(arg, attr) == value
+			elif not operation and not value:
+				return hasattr(arg, attr)
+			else:
+				return operation(getattr(arg, attr), value)
+		except AttributeError:
+			return False
+	return fpm.GuardFunc(wrapper)
+
+def item(item, value=None, operation=None):
+	def wrapper(arg):
+		try:
+			if operation and not value:
+				return operation(arg[item])
+			elif value and not operation:
+				return arg[item] == value
+			elif not operation and not value:
+				return item in arg
+			else:
+				return operation(arg[item], value)
+		except KeyError:
+			return False
+	return fpm.GuardFunc(wrapper)
