@@ -6,10 +6,7 @@ from arago.common.logging import getCustomLogger
 import operator
 import sys
 
-logger = getCustomLogger(
-	level="TRACE", logfile=sys.stderr,
-	formatting=("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
-)
+logger = getCustomLogger(level="TRACE")
 
 class PingPong(Actor):
 	def aufschlag(self, opponent):
