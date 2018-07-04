@@ -19,9 +19,10 @@ class TaskCanceledError(Exception):
     __str__ = lambda x: "TaskCanceledError"
 
 class Task(gevent.event.AsyncResult):
-	def __init__(self, msg, sender=None):
+	def __init__(self, msg, payload=None, sender=None):
 		super().__init__()
-		self._msg = pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
+		self.msg = msg
+		self._payload = pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
 		self.sender = sender
 		self.canceled = False
 
@@ -29,8 +30,8 @@ class Task(gevent.event.AsyncResult):
 		self.canceled = True
 
 	@property
-	def msg(self):
-		return pickle.loads(self._msg)
+	def payload(self):
+		return pickle.loads(self._payload)
 
 	def set(self, value=None):
 		if self.canceled:
@@ -70,9 +71,9 @@ class Actor(object):
 		try:
 			self._logger.trace("{me} starts handling {task}".format(me=self, task=task))
 			if isinstance(self.handle, MultiFunc):
-				task.set(self.handle(self, task.msg, task.sender))
+				task.set(self.handle(self, task.msg, task.payload, task.sender))
 			else:
-				task.set(self.handle(task.msg, task.sender))
+				task.set(self.handle(task.msg, task.payload, task.sender))
 			return task
 		except Exception as e:
 			task.set_exception(e)
@@ -120,7 +121,7 @@ class Actor(object):
 		"""Override in your own Actor subclass"""
 		raise NotImplementedError
 
-	def _receive(self, msg, sender=None):
+	def _receive(self, msg, payload=None, sender=None):
 		sending_greenlet = gevent.getcurrent()
 		if sender:
 			sender = sender
@@ -134,7 +135,7 @@ class Actor(object):
 				sender = l["self"]
 			else:
 				sender = None
-		task = Task(msg, sender)
+		task = Task(msg, payload, sender)
 		return self._enqueue(task)
 
 	def _enqueue(self, task):
@@ -156,15 +157,15 @@ class Actor(object):
 			pass
 		self.clear()
 
-	def tell(self, msg, sender=None):
+	def tell(self, msg, payload=None, sender=None):
 		"""Send a message, get nothing (fire-and-forget)."""
 		self._receive(msg, sender=sender)
 
-	def ask(self, msg, sender=None):
+	def ask(self, msg, payload=None, sender=None):
 		"""Send a message, get a future."""
 		return self._receive(msg, sender=sender)
 
-	def wait_for(self, msg, sender=None, timeout=None, retry=1):
+	def wait_for(self, msg, payload=None, sender=None, timeout=None, retry=1):
 		"""Send a message, get a result"""
 		for it in range(retry):
 			try:
