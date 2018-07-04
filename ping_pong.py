@@ -7,7 +7,7 @@ from arago.common.logging import getCustomLogger
 logger = getCustomLogger(level="TRACE")
 
 class PingPong(Actor):
-	def aufschlag(self, opponent):
+	def serve(self, opponent):
 		opponent.tell("Ping", sender=self)
 
 	@matching.match(msg = "Ping", sender = matching.isoftype(Actor))
@@ -24,5 +24,6 @@ class PingPong(Actor):
 
 players = [PingPong(name="Player One"), PingPong(name="Player Two")]
 
-players[0].aufschlag(players[1])
+players[0].serve(opponent=players[1])
+
 Root(name="root", children=players)
