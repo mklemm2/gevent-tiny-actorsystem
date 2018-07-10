@@ -9,9 +9,14 @@ import random
 logger = getCustomLogger(level="DEBUG")
 
 class Echo(Actor):
+	@matching.match(msg = "crash")
+	def handle(self, msg, payload, sender): return undefined
+
+	@matching.match(msg = "stop")
+	def handle(self, msg, payload, sender): self.stop()
+
 	@matching.match(msg = matching.isoftype(str))
-	def handle(self, msg, payload, sender):
-		return "{me} replies: {msg}".format(me=self, msg=msg)
+	def handle(self, msg, payload, sender): return "{me} replies: {msg}".format(me=self, msg=msg)
 
 def send(target):
 	for message in random.choices(["hello", 1], weights=[5,1], k=10):
