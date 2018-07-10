@@ -30,5 +30,4 @@ def send(target):
 echo = Echo(name="echo")
 monitor = Monitor(name="monitor", policy=RESUME, children=[echo])
 
-background = gevent.spawn(send, echo)
-background.join()
+gevent.spawn(send, echo).join()
