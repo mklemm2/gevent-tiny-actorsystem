@@ -19,7 +19,7 @@ class Echo(Actor):
 	def handle(self, msg, payload, sender): return "{me} replies: {msg}".format(me=self, msg=msg)
 
 def send(target):
-	for message in random.choices(["hello", 1], weights=[5,1], k=10):
+	for message in (5 * ["hello"] + random.choices(["hello", "crash"], weights=[2,1], k=10) + ["stop"] + 3 * ["hello"]):
 		try:
 			logger.info("Sending {msg} to {target}".format(msg=message, target=target))
 			answer = target.wait_for(message)
