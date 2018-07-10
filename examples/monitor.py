@@ -21,7 +21,7 @@ class Echo(Actor):
 def send(target):
 	for message in random.choices(["hello", 1], weights=[5,1], k=10):
 		try:
-			logger.info("Sending {typ} {msg} to {target}".format(typ=type(message), msg=message, target=target))
+			logger.info("Sending {msg} to {target}".format(msg=message, target=target))
 			answer = target.wait_for(message)
 			logger.info(answer)
 		except Exception as e:
