@@ -200,17 +200,16 @@ class Actor(object):
 				self._logger.trace("{me} is rejecting {task}".format(me=self, task=task))
 				task.set_exception(ActorStoppedError)
 
-	def shutdown(self):
-		return self.stop()
-
 	def resume(self):
-		return self.start()
+		self.start()
 
 	def restart(self):
 		self.stop()
 		self.clear()
-		return self.start()
+		self.start()
 
+	def shutdown(self):
+		self.stop()
 
 	def __del__(self):
 		try:
