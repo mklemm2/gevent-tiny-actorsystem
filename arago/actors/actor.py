@@ -122,6 +122,7 @@ class Actor(object):
 		raise NotImplementedError
 
 	def _receive(self, msg, payload=None, sender=None):
+		gevent.idle() # UGLY: Find a better place for this
 		sending_greenlet = gevent.getcurrent()
 		if sender:
 			sender = sender
@@ -198,6 +199,18 @@ class Actor(object):
 			if isinstance(task, Task):
 				self._logger.trace("{me} is rejecting {task}".format(me=self, task=task))
 				task.set_exception(ActorStoppedError)
+
+	def shutdown(self):
+		return self.stop()
+
+	def resume(self):
+		return self.start()
+
+	def restart(self):
+		self.stop()
+		self.clear()
+		return self.start()
+
 
 	def __del__(self):
 		try:
