@@ -3,6 +3,7 @@ import random, pickle, logging, weakref
 from types import SimpleNamespace
 from function_pattern_matching import MultiFunc
 import inspect
+from functools import partial
 
 from gevent import GreenletExit
 
@@ -63,6 +64,10 @@ class Actor(object):
 		self._ttl = ttl
 		self._loop = gevent.spawn(loop) if loop else gevent.spawn(self._dequeue, weakref.proxy(self))
 		self.name=name if name else "actor-{0}".format(self._loop.minimal_ident)
+
+	@classmethod
+	def prepare(cls, *args, **kwargs):
+		return partial(cls, *args, **kwargs)
 
 	def __str__(self):
 		return "<{type} \"{name}\">".format(type=type(self).__name__, name=self.name)
