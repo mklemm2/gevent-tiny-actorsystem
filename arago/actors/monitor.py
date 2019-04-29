@@ -18,7 +18,7 @@ RESTART_REST_REVERSE = ExitPolicy("RESTART_REST_REVERSE") # restart the exited c
 RESTART_ALL = ExitPolicy("RESTART_ALL") # restart all children (in order)
 RESTART_ALL_REVERSE = ExitPolicy("RESTART_ALL_REVERSE") # restart all children (in reverse order)
 ESCALATE = ExitPolicy("ESCALATE") # if a child stops, stop all children and yourself
-DEPLETE = ExitPolicy("DEPLETE") # if the last child stops, stop all children and yourself
+DEPLETE = ExitPolicy("DEPLETE") # if the last child stops, stop yourself
 SHUTDOWN = ExitPolicy("SHUTDOWN") # shutdown crashed children
 SHUTDOWN_ALL = ExitPolicy("SHUTDOWN_ALL") # shutdown all children
 
@@ -27,8 +27,13 @@ class Monitor(Actor):
 		super().__init__(name=name, *args, **kwargs)
 		self._policy = policy
 		self._children = []
-		([self.register_child(child) for child in children]
-		 if children else None)
+		[self.register_child(child) for child in children] if children else None
+
+	def _kill(self):
+		self._policy = DEPLETE
+		for child in list(self._children):
+			child._kill()
+		#super()._kill()
 
 	def _handle_child(self, child, state):
 		self._logger.debug("{ch}, a child of {me}, stopped, policy is {pol}".format(ch=child, me=self, pol=self._policy))
@@ -62,7 +67,7 @@ class Monitor(Actor):
 			self.unregister_child(child)
 			if state == "crashed":
 				child.clear()
-			if len(self._children.greenlets) <= 1:
+			if len(self._children) < 1:
 				self._logger.error("{ch}, last child of {me}, stopped, escalating ...".format(me=self, ch=child))
 				self._kill()
 
@@ -84,26 +89,36 @@ class Monitor(Actor):
 	def unregister_child(self, child):
 		"""Unregister a running Actor from the list of children"""
 		#child.unlink(self._handle_child_exit)
-		self._children.remove(child)
-		self._logger.debug("{ch} unregistered as child of {me}.".format(ch=child, me=self))
+		try:
+			self._children.remove(child)
+			self._logger.debug("{ch} unregistered as child of {me}.".format(ch=child, me=self))
+		except ValueError:
+			self._logger.debug("Unregistering {ch} as child of {me} failed.".format(ch=child, me=self))
+
 
 	def resume(self):
-		[child.resume() for child in self._children]
+		[child.resume() for child in list(self._children)]
 		super().resume()
 
 	def restart(self):
-		[child.restart() for child in self._children]
+		[child.restart() for child in list(self._children)]
 		super().restart()
 
-	def shutdown(self):
-		[child.shutdown() for child in self._children]
-		super().shutdown()
+	def stop(self):
+		self._policy = DEPLETE
+		self._logger.debug("{me} is in controlled shutdown, changing restart policy to {pol}".format(me=self, pol=self._policy))
+		for child in list(self._children):
+			child.stop()
+		while len(self._children) > 0:
+			gevent.idle()
+		self._logger.debug("All children of {me} unregistered.".format(me=self))
+		super().stop()
 
 class Root(Monitor):
 	def __init__(self, join=True, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		gevent.hub.signal(signal.SIGINT, self.shutdown)
-		gevent.hub.signal(signal.SIGTERM, self.shutdown)
+		gevent.hub.signal(signal.SIGINT, self.stop)
+		gevent.hub.signal(signal.SIGTERM, self.stop)
 		if join:
 			self.join()
 
