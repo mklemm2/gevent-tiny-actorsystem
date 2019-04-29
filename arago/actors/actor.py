@@ -91,8 +91,10 @@ class Actor(object):
 		try:
 			for task in self._mailbox:
 				gevent.idle()
-				max_idle_timeout.cancel()
-				max_idle_timeout.start()
+				# No idea why this doesn't work
+				# max_idle_timeout.cancel()
+				# max_idle_timeout.start()
+				max_idle_timeout.close()
 				if self._max_idle:
 					self._logger.trace("{me} has canceled timeout of {max_idle} seconds".format(me=self, max_idle=self._max_idle))
 				if isinstance(task, Task) and not task.canceled:
@@ -104,12 +106,13 @@ class Actor(object):
 				elif isinstance(task, Task) and task.canceled:
 					self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
 					continue
+				max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
 		except ActorMaxIdleError as e:
 			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
-			self._kill()
+			self.stop()
 		except ActorTTLError as e:
 			self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
-			self._kill()
+			self.stop()
 		except ActorStoppedError as e:
 			self._stopped = True
 			if hasattr(self, "_parent"):
@@ -124,7 +127,7 @@ class Actor(object):
 
 	def handle(self, message, payload=None, sender=None):
 		"""Override in your own Actor subclass"""
-		raise NotImplementedError
+		raise NotImplementedError('Please subclass Actor and implement the handle() method')
 
 	def _receive(self, msg, payload=None, sender=None):
 		gevent.idle() # UGLY: Find a better place for this
@@ -156,12 +159,12 @@ class Actor(object):
 	def _kill(self):
 		self._stopped = True
 		self._logger.debug("{me} received order to stop immediately.".format(me=self))
-		self._parent._handle_child(self, "stopped")
 		try:
 			self._loop.kill()
 		except GreenletExit:
 			pass
 		self.clear()
+		self._parent._handle_child(self, "stopped")
 
 	def tell(self, msg, payload=None, sender=None):
 		"""Send a message, get nothing (fire-and-forget)."""
@@ -213,9 +216,6 @@ class Actor(object):
 		self.clear()
 		self.start()
 
-	def shutdown(self):
-		self.stop()
-
 	def __del__(self):
 		try:
 			self._loop.kill()
@@ -227,3 +227,9 @@ class Actor(object):
 	def register_parent(self, parent):
 		self._parent = weakref.proxy(parent)
 		self._logger.debug("{me} registered {par} as its parent.".format(me=self, par=parent))
+
+	def wait_idle(self):
+		self._mailbox.join()
+
+	def join(self):
+		self._loop.join()
