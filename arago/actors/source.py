@@ -4,6 +4,7 @@ from arago.actors.actor import Actor
 class SourceDoesntAcceptMessagesError(Exception):
 	__str__ = lambda x: "SourceDoesntAcceptMessagesError"
 
+
 class Source(Actor):
 	def __init__(self, server, *args, **kwargs):
 		super().__init__(loop=lambda: None, *args, **kwargs)
@@ -26,6 +27,7 @@ class Source(Actor):
 			self._stopped = True
 			self._logger.debug("{me} received order to stop.".format(me=self))
 			self._server.stop()
+			self._parent._handle_child(self, "stopped")
 		else:
 			self._logger.debug("{me} is already stopped.".format(me=self))
 

@@ -1,4 +1,4 @@
-from arago.actors import Router, ActorCrashedError
+from arago.actors import Router
 
 class RoundRobinRouter(Router):
 	("""Routes received messages to its childdren """
@@ -8,8 +8,8 @@ class RoundRobinRouter(Router):
 		self._next = self._round_robin()
 
 	def _round_robin(self):
-		while len(self._children.greenlets) >= 1:
-			for item in self._children.greenlets:
+		while len(self._children) >= 1:
+			for item in self._children:
 				yield item
 		raise StopIteration
 

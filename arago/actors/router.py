@@ -9,7 +9,7 @@ class Router(Monitor):
 
 	def _forward(self, task):
 		try:
-			target = self._route(task.msg)
+			target = self._route(task)
 			self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
 			return target._enqueue(task)
 		except ActorStoppedError as e:
@@ -18,9 +18,13 @@ class Router(Monitor):
 			task.set_exception(e)
 		except Exception as e:
 			gevent.idle()
-			self._logger.trace("{me} has failed to route {task}: Determining target failed".format(me=self, task=task))
+			self._logger.trace("{me} has failed to route {task}: Determining target failed with {err}".format(me=self, task=task, err=e))
 			task.set_exception(e)
 			raise
 
 	def _handle(self, task):
 		return self._forward(task)
+
+	def join(self):
+		self._logger.trace("{me} is waiting for all children to finish their work".format(me=self))
+		[child.join() for child in self._children]

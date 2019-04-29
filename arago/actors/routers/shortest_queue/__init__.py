@@ -1,1 +1,1 @@
-from arago.actors.routers.shortest_queue.shortest_queue_router import RandomRouter
+from arago.actors.routers.shortest_queue.shortest_queue_router import ShortestQueueRouter
