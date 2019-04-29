@@ -1,5 +1,6 @@
 import gevent.hub
 import signal
+from functools import partial
 from arago.actors.actor import Actor
 from arago.actors.actor import ActorStoppedError
 
@@ -22,8 +23,8 @@ SHUTDOWN = ExitPolicy("SHUTDOWN") # shutdown crashed children
 SHUTDOWN_ALL = ExitPolicy("SHUTDOWN_ALL") # shutdown all children
 
 class Monitor(Actor):
-	def __init__(self, name=None, policy=RESTART, max_restarts=None, timeframe=None, children=None):
-		super().__init__(name=name)
+	def __init__(self, name=None, policy=RESTART, max_restarts=None, timeframe=None, children=None, *args, **kwargs):
+		super().__init__(name=name, *args, **kwargs)
 		self._policy = policy
 		self._children = []
 		([self.register_child(child) for child in children]
@@ -73,6 +74,8 @@ class Monitor(Actor):
 
 	def register_child(self, child):
 		"""Register an already running Actor as child"""
+		if isinstance(child, partial):
+			child = child()
 		self._children.append(child)
 		#child.link(self._handle_child_exit)
 		child.register_parent(self)
