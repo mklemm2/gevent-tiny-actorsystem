@@ -22,7 +22,7 @@ class Task(gevent.event.AsyncResult):
 	def __init__(self, msg, payload=None, sender=None):
 		super().__init__()
 		self.msg = msg
-		self._payload = pickle.dumps(msg, protocol=pickle.HIGHEST_PROTOCOL)
+		self._payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 		self.sender = sender
 		self.canceled = False
 
@@ -49,11 +49,11 @@ class Task(gevent.event.AsyncResult):
 			return bytes
 
 	def __str__(self):
-		return ("<Task, sender={sender}, message={msg}>"
-		).format(sender=self.sender, msg=self.msg)
+		return ("<Task, sender={sender}, message={msg}, payload={p}>"
+		).format(sender=self.sender, msg=self.msg, p=self.payload)
 
 class Actor(object):
-	def __init__(self, name=None, max_idle=None, ttl=None, loop=None):
+	def __init__(self, name=None, max_idle=None, ttl=None, loop=None, *args, **kwargs):
 		self.context = SimpleNamespace()
 		self._logger = logging.getLogger('root')
 		self._mailbox = gevent.queue.Queue()
@@ -117,7 +117,7 @@ class Actor(object):
 			ttl_timeout.close()
 			max_idle_timeout.close()
 
-	def handle(self, task):
+	def handle(self, message, payload=None, sender=None):
 		"""Override in your own Actor subclass"""
 		raise NotImplementedError
 
@@ -160,17 +160,17 @@ class Actor(object):
 
 	def tell(self, msg, payload=None, sender=None):
 		"""Send a message, get nothing (fire-and-forget)."""
-		self._receive(msg, sender=sender)
+		self._receive(msg, payload=payload, sender=sender)
 
 	def ask(self, msg, payload=None, sender=None):
 		"""Send a message, get a future."""
-		return self._receive(msg, sender=sender)
+		return self._receive(msg, payload=payload, sender=sender)
 
 	def wait_for(self, msg, payload=None, sender=None, timeout=None, retry=1):
 		"""Send a message, get a result"""
 		for it in range(retry):
 			try:
-				return self._receive(msg, sender=sender).get(timeout=timeout)
+				return self._receive(msg, payload=payload, sender=sender).get(timeout=timeout)
 			except (ActorStoppedError, gevent.Timeout) as exc:
 				last_exc = exc
 				continue
