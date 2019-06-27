@@ -11,7 +11,7 @@ class Router(Monitor):
 		try:
 			target = self._route(task)
 			self._logger.trace("{me} is handing the task {task} to {target}".format(me=self, task=task, target=target))
-			return target._enqueue(task)
+			return target._enqueue(task) if target else None
 		except ActorStoppedError as e:
 			gevent.idle()
 			self._logger.trace("{me} has failed to route {task} to {target} because {target} is stopped".format(me=self, task=task, target=target))
@@ -23,6 +23,7 @@ class Router(Monitor):
 			raise
 
 	def _handle(self, task):
+		self._logger.trace("{me} received task {t} for routing".format(me=self, t=task))
 		return self._forward(task)
 
 	def join(self):

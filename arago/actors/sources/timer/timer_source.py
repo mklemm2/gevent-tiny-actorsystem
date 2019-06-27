@@ -18,8 +18,8 @@ class Timer(object):
 
 
 class TimerSource(Source):
-	def __init__(self, targets, delay=0, timeout=1, msg="wakeup", *args, **kwargs):
-		self._targets = targets
+	def __init__(self, handler=None, delay=0, timeout=1, msg="wakeup", *args, **kwargs):
+		self._handler = handler
 		self._msg = msg
 		self._timer = Timer(self._wakeup, delay, timeout)
 		super().__init__(*args, **kwargs, server=self._timer)
@@ -30,5 +30,8 @@ class TimerSource(Source):
 
 	def _wakeup(self):
 		now = time.time()
-		self._logger.trace("{me} triggered at {ts}".format(me=self, ts=now))
-		[gevent.spawn(target.tell, self._msg, {"timestamp": now}, self) for target in self._targets]
+		self._logger.debug("{me} triggered at {ts}".format(me=self, ts=now))
+		if self._handler:
+			gevent.spawn(self._handler.tell, self._msg, {"timestamp": now}, self)
+		else:
+			self._logger.warning("{me} has no handler defined!")

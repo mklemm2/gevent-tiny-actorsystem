@@ -45,7 +45,7 @@ class Monitor(Actor):
 			child.start()
 
 		elif self._policy == SHUTDOWN:
-			self._logger.warn("{ch}, a child of {me}, stopped, shutting it down ...".format(me=self, ch=child))
+			self._logger.info("{me} has shutdown {ch}".format(me=self, ch=child))
 			self.unregister_child(child)
 			if state == "crashed":
 				child.clear()
@@ -105,7 +105,7 @@ class Monitor(Actor):
 		super().restart()
 
 	def stop(self):
-		self._policy = DEPLETE
+		self._policy = SHUTDOWN
 		self._logger.debug("{me} is in controlled shutdown, changing restart policy to {pol}".format(me=self, pol=self._policy))
 		for child in list(self._children):
 			child.stop()
@@ -122,6 +122,15 @@ class Root(Monitor):
 		if join:
 			self.join()
 
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_value, traceback):
+		if exc_type is None and exc_value is None and traceback is None:
+			self._logger.info("{me} was shutdown, properly".format(me=self))
+		else:
+			self._logger.error("{me} crashed with {err}".format(me=self, err=exc_value))
+			return True
 
 	def join(self):
 		self._loop.join()

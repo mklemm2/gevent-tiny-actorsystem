@@ -4,7 +4,7 @@ from arago.actors import Actor, Root
 import arago.actors.pattern_matching as matching
 from arago.common.logging import getCustomLogger
 
-logger = getCustomLogger(level="TRACE")
+logger = getCustomLogger(level="WARNING")
 
 class PingPong(Actor):
 	def serve(self, opponent):

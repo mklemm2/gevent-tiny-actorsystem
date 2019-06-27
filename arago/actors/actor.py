@@ -4,6 +4,9 @@ from types import SimpleNamespace
 from function_pattern_matching import MultiFunc
 import inspect
 from functools import partial
+import better_exceptions
+import sys
+from loguru import logger
 
 from gevent import GreenletExit
 
@@ -50,8 +53,8 @@ class Task(gevent.event.AsyncResult):
 			return bytes
 
 	def __str__(self):
-		return ("<Task, sender={sender}, message={msg}, payload={p}>"
-		).format(sender=self.sender, msg=self.msg, p=self.payload)
+		return ("<Task, sender={sender}, message={msg}>"
+		).format(sender=self.sender, msg=self.msg)
 
 class Actor(object):
 	def __init__(self, name=None, max_idle=None, ttl=None, loop=None, *args, **kwargs):
@@ -119,7 +122,8 @@ class Actor(object):
 				self._parent._handle_child(self, "stopped")
 		except Exception as e:
 			self._stopped = True
-			self._logger.error(("{me} crashed with: {exc}").format(me=self, exc=e))
+			formatted_exc = better_exceptions.format_exception(*sys.exc_info())
+			self._logger.error(("{me} crashed with:\n{exc}").format(me=self, exc=formatted_exc))
 			self._parent._handle_child(self, "crashed")
 		finally:
 			ttl_timeout.close()
