@@ -74,7 +74,7 @@ class Monitor(Actor):
 	def spawn_child(self, cls, *args, **kwargs):
 		"""Start an instance of cls(*args, **kwargs) as child"""
 		child = cls(*args, **kwargs)
-		self.logger.debug("{me} spawned new child {ch}".format(me=self, ch=child))
+		self._logger.debug("{me} spawned new child {ch}".format(me=self, ch=child))
 		self._register_child(child)
 
 	def register_child(self, child):
