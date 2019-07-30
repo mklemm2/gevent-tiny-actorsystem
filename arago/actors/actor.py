@@ -40,17 +40,12 @@ class Task(gevent.event.AsyncResult):
 	def set(self, value=None):
 		if self.canceled:
 			return TaskCanceledError
-		bytes = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
-		return super().set(bytes)
+		return super().set(value)
 
 	def get(self, *args, **kwargs):
 		if self.canceled:
 			return TaskCanceledError
-		bytes = super().get(*args, **kwargs)
-		try:
-			return pickle.loads(bytes)
-		except:
-			return bytes
+		return super().get(*args, **kwargs)
 
 	def __str__(self):
 		return ("<Task, sender={sender}, message={msg}>"
