@@ -26,7 +26,7 @@ class Task(gevent.event.AsyncResult):
 	def __init__(self, msg, payload=None, sender=None):
 		super().__init__()
 		self.msg = msg
-		self._payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+		self._payload = payload # pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 		self.sender = sender
 		self.canceled = False
 
@@ -35,7 +35,8 @@ class Task(gevent.event.AsyncResult):
 
 	@property
 	def payload(self):
-		return pickle.loads(self._payload)
+		return self._payload
+		#return pickle.loads(self._payload)
 
 	def set(self, value=None):
 		if self.canceled:
