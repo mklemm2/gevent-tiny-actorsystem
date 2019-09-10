@@ -29,5 +29,5 @@ distutils.core.setup(
 			  'arago.actors.routers.shortest_queue',
 			  'arago.actors.sources.timer',
 	],
-	install_requires=['gevent', 'function_pattern_matching']
+	install_requires=['gevent', 'function_pattern_matching', 'better_exceptions']
 )
