@@ -6,7 +6,6 @@ import inspect
 from functools import partial
 import better_exceptions
 import sys
-from loguru import logger
 
 from gevent import GreenletExit
 
