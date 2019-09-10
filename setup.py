@@ -28,5 +28,6 @@ distutils.core.setup(
 			  'arago.actors.routers.round_robin',
 			  'arago.actors.routers.shortest_queue',
 			  'arago.actors.sources.timer',
-	]
+	],
+	install_requires=['gevent']
 )
