@@ -3,6 +3,7 @@ import signal
 from functools import partial
 from arago.actors.actor import Actor
 from arago.actors.actor import ActorStoppedError
+import traceback
 
 class ExitPolicy(object):
 	def __init__(self, identifier):
@@ -129,7 +130,7 @@ class Root(Monitor):
 		if exc_type is None and exc_value is None and traceback is None:
 			self._logger.info("{me} was shutdown, properly".format(me=self))
 		else:
-			self._logger.error("{me} crashed with {err}".format(me=self, err=exc_value))
+			self._logger.error("{me} crashed with {err}\n{tb}".format(me=self, err=exc_value, tb=traceback.format_exc()))
 			return True
 
 	def join(self):
