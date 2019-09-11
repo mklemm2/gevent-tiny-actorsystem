@@ -116,10 +116,11 @@ class Monitor(Actor):
 		super().stop()
 
 class Root(Monitor):
-	def __init__(self, join=True, *args, **kwargs):
+	def __init__(self, join=True, tracebacks=False, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		gevent.hub.signal(signal.SIGINT, self.stop)
 		gevent.hub.signal(signal.SIGTERM, self.stop)
+		self.tracebacks = tracebacks
 		if join:
 			self.join()
 
@@ -130,8 +131,8 @@ class Root(Monitor):
 		if exc_type is None and exc_value is None and tb is None:
 			self._logger.info("{me} was shutdown, properly".format(me=self))
 		else:
-			self._logger.error("{me} crashed with {err}\n{tb}".format(me=self, err=exc_value, tb=traceback.format_exc()))
-			return True
+			self._logger.error("{me} crashed with {err}".format(me=self, err=exc_value))
+			return not self.tracebacks
 
 	def join(self):
 		self._loop.join()
