@@ -126,8 +126,8 @@ class Root(Monitor):
 	def __enter__(self):
 		return self
 
-	def __exit__(self, exc_type, exc_value, traceback):
-		if exc_type is None and exc_value is None and traceback is None:
+	def __exit__(self, exc_type, exc_value, tb):
+		if exc_type is None and exc_value is None and tb is None:
 			self._logger.info("{me} was shutdown, properly".format(me=self))
 		else:
 			self._logger.error("{me} crashed with {err}\n{tb}".format(me=self, err=exc_value, tb=traceback.format_exc()))
