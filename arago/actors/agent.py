@@ -1,5 +1,5 @@
 from arago.actors import Monitor
-import arago.actors.pattern_matching as matching
+from . import pattern_matching as matching
 
 
 class Agent(Monitor):
