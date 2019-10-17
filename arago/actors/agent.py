@@ -3,8 +3,9 @@ from . import pattern_matching as matching
 
 
 class Agent(Monitor):
-	def __init__(self, *args, **kwargs):
+	def __init__(self, agency, *args, **kwargs):
 		super().__init__(*args, **kwargs)
+		self.agency = agency
 		self.tell("start mission")
 		self.stop()
 
