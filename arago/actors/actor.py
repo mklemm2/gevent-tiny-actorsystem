@@ -83,46 +83,44 @@ class Actor(object):
 			raise
 
 	def _dequeue(self, parent):
-		ttl_timeout = gevent.Timeout.start_new(timeout=self._ttl, exception=ActorTTLError)
-		max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
+		self._ttl_timeout = gevent.Timeout.start_new(timeout=self._ttl, exception=ActorTTLError)
+		self._max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
 		self._stopped = False
+		self._crashed = False
 		try:
 			for task in self._mailbox:
 				gevent.idle()
-				# No idea why this doesn't work
-				# max_idle_timeout.cancel()
-				# max_idle_timeout.start()
-				max_idle_timeout.close()
+				self._max_idle_timeout.close()
 				if self._max_idle:
 					self._logger.trace("{me} has canceled timeout of {max_idle} seconds".format(me=self, max_idle=self._max_idle))
 				if isinstance(task, Task) and not task.canceled:
 					self._logger.trace("{me} took {task} from mailbox".format(me=self, task=task))
 					self._handle(task)
 				elif task is self._poisoned_pill:
-					self._logger.debug("{me} received poisoned pill.".format(me=self))
+					self._logger.debug("{me} is processing the poisoned pill.".format(me=self))
 					raise ActorStoppedError
 				elif isinstance(task, Task) and task.canceled:
 					self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
 					continue
-				max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
+				self._max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
 		except ActorMaxIdleError as e:
 			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
-			self.stop()
+			self.stop()  # FIXME!!!!
 		except ActorTTLError as e:
 			self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
-			self.stop()
+			self.stop()  # FIXME!!!!
 		except ActorStoppedError as e:
 			self._stopped = True
-			if hasattr(self, "_parent"):
-				self._parent._handle_child(self, "stopped")
 		except Exception as e:
 			self._stopped = True
+			self._crashed = True
 			formatted_exc = better_exceptions.format_exception(*sys.exc_info())
 			self._logger.error(("{me} crashed with:\n{exc}").format(me=self, exc=formatted_exc))
-			self._parent._handle_child(self, "crashed")
 		finally:
-			ttl_timeout.close()
-			max_idle_timeout.close()
+			self._ttl_timeout.close()
+			self._max_idle_timeout.close()
+			if hasattr(self, "_parent"):
+				self._parent._handle_child(self, "crashed" if self._crashed else "stopped")
 
 	def handle(self, message, payload=None, sender=None):
 		"""Override in your own Actor subclass"""
