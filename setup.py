@@ -7,7 +7,7 @@ import distutils.core
 
 distutils.core.setup(
 	name = "python-arago-actors",
-	version = "0.9",
+	version = "1.0",
 	author = "Marcus Klemm",
 	author_email = "mklemm@arago.de",
 	description = ("gevent-based actor system"),

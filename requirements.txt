@@ -1,3 +1,3 @@
-git+https://github.com/arago/python-arago-common.git@releases/1.0.0#egg=arago-common-base
-gevent >= 1.3.4
-function-pattern-matching >= 0.99a2
+git+https://github.com/arago/python-arago-common
+gevent
+function-pattern-matching
