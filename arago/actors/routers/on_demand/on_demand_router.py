@@ -8,6 +8,7 @@ import sys
 class SpawningChildFailedError(Exception):
 	__str__ = lambda x: "SpawningChildFailedError"
 
+
 class OnDemandRouter(Router):
 	"""Spawns new children on demand"""
 	def __init__(self, worker_cls, name=None, worker_name_tpl=None, worker_args_func=None,
@@ -16,7 +17,7 @@ class OnDemandRouter(Router):
 		self._worker_cls = worker_cls
 		self._worker_name_tpl = worker_name_tpl
 		self._worker_args_func = worker_args_func
-		self._map = mapfunc if callable(mapfunc) else lambda msg: msg
+		self._map = mapfunc if callable(mapfunc) else lambda msg: id(msg)
 		self._children_map = {}
 		self._children_map_reverse = {}
 		self._children_map_lock = gevent.lock.Semaphore()
