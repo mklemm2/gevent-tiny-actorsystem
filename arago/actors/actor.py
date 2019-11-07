@@ -58,6 +58,7 @@ class Actor(object):
 		self._mailbox = gevent.queue.Queue()
 		self._stopped = False
 		self._poisoned_pill = object()
+		self._ping_pill = object()
 		self._max_idle = max_idle
 		self._ttl = ttl
 		self._loop = gevent.spawn(loop) if loop else gevent.spawn(self._dequeue, weakref.proxy(self))
@@ -99,6 +100,8 @@ class Actor(object):
 				elif task is self._poisoned_pill:
 					self._logger.debug("{me} is processing the poisoned pill.".format(me=self))
 					raise ActorStoppedError
+				elif task is self._ping_pill:
+					self._logger.debug("{me} is processing a ping.".format(me=self))
 				elif isinstance(task, Task) and task.canceled:
 					self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
 					continue
@@ -196,6 +199,13 @@ class Actor(object):
 			self._mailbox.put(self._poisoned_pill)
 		else:
 			self._logger.debug("{me} is already stopped.".format(me=self))
+
+	def ping(self):
+		if not self._stopped:
+			self._logger.debug("{me} received ping message.".format(me=self))
+			self._mailbox.put(self._ping_pill)
+		else:
+			self._logger.debug("{me} is stopped.".format(me=self))
 
 	def clear(self):
 		self.context = SimpleNamespace()
