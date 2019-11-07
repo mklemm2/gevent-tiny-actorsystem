@@ -1,6 +1,8 @@
 from arago.actors import Router, IGNORE
 import gevent.lock
 import gc
+import better_exceptions
+import sys
 
 
 class SpawningChildFailedError(Exception):
@@ -8,11 +10,12 @@ class SpawningChildFailedError(Exception):
 
 class OnDemandRouter(Router):
 	"""Spawns new children on demand"""
-	def __init__(self, worker_cls, name=None, worker_name_tpl=None,
+	def __init__(self, worker_cls, name=None, worker_name_tpl=None, worker_args_func=None,
 	             policy=IGNORE, max_restarts=None, timeframe=None,
 	             mapfunc=None):
 		self._worker_cls = worker_cls
 		self._worker_name_tpl = worker_name_tpl
+		self._worker_args_func = worker_args_func
 		self._map = mapfunc if callable(mapfunc) else lambda msg: msg
 		self._children_map = {}
 		self._children_map_reverse = {}
@@ -25,17 +28,19 @@ class OnDemandRouter(Router):
 			child = self._children_map[target]
 			self._logger.debug("{me} is re-using existing worker {ch} for target {target}".format(me=self, ch=child, target=target))
 		else:
-			child = self.spawn_child(target)
+			child = self.spawn_child(target, msg=msg)
 			self._logger.verbose("{me} has spawned new worker {ch} for target {target}".format(me=self, ch=child, target=target))
 		return child
 
-	def spawn_child(self, target, name=None):
+	def spawn_child(self, target, name=None, msg=None):
 		if not name:
 			name = "{tpl}-{target}".format(tpl = self._worker_name_tpl or str(self._worker_cls), target=target)
 		try:
-			child = self._worker_cls(name=name, target=target)
-		except Exception as e:
-			self._logger.error("Spawning child failed with {e}".format(e=e))
+			kwargs = self._worker_args_func(msg) if msg and self._worker_args_func else {}
+			child = self._worker_cls(name=name, target=target, **kwargs)
+		except Exception:
+			formatted_exc = better_exceptions.format_exception(*sys.exc_info())
+			self._logger.error("Spawning child failed with {e}".format(e=formatted_exc))
 			raise SpawningChildFailedError
 		child._target = target
 		self.register_child(child, target)
