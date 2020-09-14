@@ -34,6 +34,18 @@ def attr(attr, value=None, operation=None):
 			return False
 	return fpm.GuardFunc(wrapper)
 
+def items(**kwargs):
+	def wrapper(arg):
+		for key, value in kwargs.items():
+			if key in arg and arg[key] == value:
+				continue
+			else:
+				break
+		else:
+			return True
+		return False
+	return fpm.GuardFunc(wrapper)
+
 def item(item, value=None, operation=None):
 	def wrapper(arg):
 		try:
