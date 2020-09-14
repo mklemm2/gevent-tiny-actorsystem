@@ -6,7 +6,7 @@ import sys
 
 
 class SpawningChildFailedError(Exception):
-	__str__ = lambda x: "SpawningChildFailedError"
+	pass
 
 
 class OnDemandRouter(Router):
@@ -39,10 +39,10 @@ class OnDemandRouter(Router):
 		try:
 			kwargs = self._worker_args_func(msg) if msg and self._worker_args_func else {}
 			child = self._worker_cls(name=name, target=target, **kwargs)
-		except Exception:
+		except Exception as err:
 			formatted_exc = better_exceptions.format_exception(*sys.exc_info())
 			self._logger.error("Spawning child failed with {e}".format(e=formatted_exc))
-			raise SpawningChildFailedError
+			raise SpawningChildFailedError(err)
 		child._target = target
 		self.register_child(child, target)
 		return child
