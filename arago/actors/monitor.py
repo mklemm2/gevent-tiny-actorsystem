@@ -1,3 +1,4 @@
+import gevent
 import gevent.hub
 import signal
 from functools import partial
@@ -121,14 +122,16 @@ class Root(Monitor):
 		gevent.hub.signal(signal.SIGINT, self.stop)
 		gevent.hub.signal(signal.SIGTERM, self.stop)
 		self.tracebacks = tracebacks
-		if join:
-			self.join()
+		self._auto_join = join
 
 	def __enter__(self):
 		return self
 
 	def __exit__(self, exc_type, exc_value, tb):
 		if exc_type is None and exc_value is None and tb is None:
+			if self._auto_join:
+				gevent.idle()
+				self.join()
 			self._logger.info("{me} was shutdown, properly".format(me=self))
 		else:
 			self._logger.error("{me} crashed with {err}".format(me=self, err=exc_value))
