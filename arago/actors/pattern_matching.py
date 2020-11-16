@@ -1,6 +1,8 @@
 import function_pattern_matching as fpm
 from function_pattern_matching import eq, ne, lt, le, gt, ge, Is, Isnot, isoftype, isiterable, eTrue, eFalse, In, notIn, _
 
+ANYTHING = object()
+
 def match(**kwargs):
 	guard_kwargs = {k:v for k,v in kwargs.items() if isinstance(v, fpm.GuardFunc)}
 	case_kwargs = {k:v for k,v in kwargs.items() if not isinstance(v, fpm.GuardFunc)}
@@ -37,7 +39,7 @@ def attr(attr, value=None, operation=None):
 def items(**kwargs):
 	def wrapper(arg):
 		for key, value in kwargs.items():
-			if key in arg and arg[key] == value:
+			if key in arg and (arg[key] == value or value is ANYTHING:
 				continue
 			else:
 				break
