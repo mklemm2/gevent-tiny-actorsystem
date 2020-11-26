@@ -39,7 +39,7 @@ def attr(attr, value=None, operation=None):
 def items(**kwargs):
 	def wrapper(arg):
 		for key, value in kwargs.items():
-			if key in arg and (arg[key] == value or value is ANYTHING:
+			if key in arg and (arg[key] == value or value is ANYTHING):
 				continue
 			else:
 				break
