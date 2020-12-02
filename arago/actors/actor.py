@@ -89,29 +89,31 @@ class Actor(object):
 		self._stopped = False
 		self._crashed = False
 		try:
-			for task in self._mailbox:
-				gevent.idle()
-				self._max_idle_timeout.close()
-				if self._max_idle:
-					self._logger.trace("{me} has canceled timeout of {max_idle} seconds".format(me=self, max_idle=self._max_idle))
-				if isinstance(task, Task) and not task.canceled:
-					self._logger.trace("{me} took {task} from mailbox".format(me=self, task=task))
-					self._handle(task)
-				elif task is self._poisoned_pill:
-					self._logger.debug("{me} is processing the poisoned pill.".format(me=self))
-					raise ActorStoppedError
-				elif task is self._ping_pill:
-					self._logger.debug("{me} is processing a ping.".format(me=self))
-				elif isinstance(task, Task) and task.canceled:
-					self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
-					continue
-				self._max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
-		except ActorMaxIdleError as e:
-			self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
-			self.stop()  # FIXME!!!!
-		except ActorTTLError as e:
-			self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
-			self.stop()  # FIXME!!!!
+			while True:
+				try:
+					for task in self._mailbox:
+						gevent.idle()
+						self._max_idle_timeout.close()
+						if self._max_idle:
+							self._logger.trace("{me} has canceled timeout of {max_idle} seconds".format(me=self, max_idle=self._max_idle))
+						if isinstance(task, Task) and not task.canceled:
+							self._logger.trace("{me} took {task} from mailbox".format(me=self, task=task))
+							self._handle(task)
+						elif task is self._poisoned_pill:
+							self._logger.trace("{me} is processing the poisoned pill.".format(me=self))
+							raise ActorStoppedError
+						elif task is self._ping_pill:
+							self._logger.debug("{me} is processing a ping.".format(me=self))
+						elif isinstance(task, Task) and task.canceled:
+							self._logger.trace("{me} took canceled {task} from mailbox, dismissing".format(me=self, task=task))
+							continue
+						self._max_idle_timeout = gevent.Timeout.start_new(timeout=self._max_idle, exception=ActorMaxIdleError)
+				except ActorMaxIdleError as e:
+					self._logger.trace("{me} has reached max_idle timeout of {sec} seconds.".format(me=self, sec=self._max_idle))
+					self.stop(wait=False)  # FIXME!!!!
+				except ActorTTLError as e:
+					self._logger.trace("{me} has reached ttl timeout of {sec} seconds.".format(me=self, sec=self._ttl))
+					self.stop(wait=False)  # FIXME!!!!
 		except ActorStoppedError as e:
 			self._stopped = True
 		except Exception as e:
@@ -120,6 +122,14 @@ class Actor(object):
 			formatted_exc = better_exceptions.format_exception(*sys.exc_info())
 			self._logger.error(("{me} crashed with:\n{exc}").format(me=self, exc=formatted_exc))
 		finally:
+			self._logger.trace("{me} is executing on_stop() handler".format(me=self))
+			try:
+				self.on_stop()
+			except Exception as err:
+				self._crashed = True
+				formatted_exc = better_exceptions.format_exception(*sys.exc_info())
+				self._logger.error(("{me} crashed while executing on_stop() handler with:\n{exc}").format(me=self, exc=formatted_exc))
+			self._logger.trace("{me} has finished on_stop() handler".format(me=self))
 			self._ttl_timeout.close()
 			self._max_idle_timeout.close()
 			if hasattr(self, "_parent"):
@@ -192,13 +202,19 @@ class Actor(object):
 		else:
 			self._logger.debug("{me} is already started.".format(me=self))
 
-	def stop(self):
+	def stop(self, wait=True):
 		if not self._stopped:
 			self._stopped = True
 			self._logger.debug("{me} received order to stop.".format(me=self))
 			self._mailbox.put(self._poisoned_pill)
+			if wait:
+				self._logger.trace("{me} is waiting for remaining messages to be processed.".format(me=self))
+				self.join()
 		else:
 			self._logger.debug("{me} is already stopped.".format(me=self))
+
+	def on_stop(self):
+		pass
 
 	def ping(self):
 		if not self._stopped:

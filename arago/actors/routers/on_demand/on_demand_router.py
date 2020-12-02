@@ -25,9 +25,14 @@ class OnDemandRouter(Router):
 
 	def _route(self, msg):
 		target = self._map(msg)
-		if target in self._children_map:
+		if target in self._children_map and not self._children_map[target]._stopped:
 			child = self._children_map[target]
 			self._logger.debug("{me} is re-using existing worker {ch} for target {target}".format(me=self, ch=child, target=target))
+		elif target in self._children_map and self._children_map[target]._stopped:
+			self._logger.debug("{me} is waiting for existing worker {ch} for target {target} to shutdown.".format(me=self, ch=self._children_map[target], target=target))
+			self._children_map[target].join()
+			child = self.spawn_child(target, msg=msg)
+			self._logger.verbose("{me} has spawned new worker {ch} for target {target}".format(me=self, ch=child, target=target))
 		else:
 			child = self.spawn_child(target, msg=msg)
 			self._logger.verbose("{me} has spawned new worker {ch} for target {target}".format(me=self, ch=child, target=target))
