@@ -30,5 +30,5 @@ distutils.core.setup(
 			  'arago.actors.sources.timer',
 			  'arago.actors.sources.rest'
 	],
-	install_requires=['gevent', 'function_pattern_matching', 'better_exceptions']
+	install_requires=['gevent', 'function_pattern_matching', 'better_exceptions', 'fastjsonschema']
 )
