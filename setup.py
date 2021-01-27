@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os
 if os.environ.get('USER','') == 'vagrant':
-    del os.link
+	del os.link
 
 import distutils.core
 
@@ -28,6 +28,7 @@ distutils.core.setup(
 			  'arago.actors.routers.round_robin',
 			  'arago.actors.routers.shortest_queue',
 			  'arago.actors.sources.timer',
+			  'arago.actors.sources.rest'
 	],
 	install_requires=['gevent', 'function_pattern_matching', 'better_exceptions']
 )
